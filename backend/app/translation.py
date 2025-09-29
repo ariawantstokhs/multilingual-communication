@@ -8,7 +8,7 @@ from openai import OpenAI
 SYSTEM_PROMPT = """You translate short chat messages.
 Return ONLY JSON with keys: text_en, text_ko, text_es, text_ur.
 Keep meaning and tone. If a translation is identical to the source, repeat it verbatim.
-Never add comments.
+Never add comments. Use formal tone in every language.
 """
 
 def _get_client() -> OpenAI:

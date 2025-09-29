@@ -33,4 +33,7 @@ class Message(BaseModel):
     text_ko: str
     text_es: str
     text_ur: str
+
+class LabAccessRequest(BaseModel):
+    password: str
     

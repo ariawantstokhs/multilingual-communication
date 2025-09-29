@@ -10,9 +10,9 @@ import os
 import bcrypt
 import jwt
 
-from db import connect_to_mongo, close_mongo_connection, get_db
-from models import Message, User, UserCreate, UserLogin, UserResponse
-from translation import translate_message
+from .db import connect_to_mongo, close_mongo_connection, get_db
+from .models import Message, User, UserCreate, UserLogin, UserResponse, LabAccessRequest
+from .translation import translate_message
 from datetime import datetime, timedelta
 from typing import Optional
 import json
@@ -39,6 +39,9 @@ def serialize_message_doc(doc):
 SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-this-in-production")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
+
+# Lab Access Password
+LAB_ACCESS_PASSWORD = os.getenv("LAB_ACCESS_PASSWORD", "cstl+northeastern2025")
 
 # Initialize FastAPI app
 app = FastAPI()
@@ -207,6 +210,18 @@ async def health_check():
 @app.get("/")
 async def root():
     return {"message": "Global Chat API is running"}
+
+# Lab access verification endpoint
+@app.post("/auth/verify-lab-access")
+async def verify_lab_access(access_request: LabAccessRequest):
+    """Verify lab access password."""
+    if access_request.password == LAB_ACCESS_PASSWORD:
+        return {"message": "Access granted", "success": True}
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid lab access password"
+        )
 
 # Authentication endpoints
 @app.post("/auth/register", response_model=UserResponse)

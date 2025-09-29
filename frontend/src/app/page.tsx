@@ -35,6 +35,111 @@ const LANGUAGES = {
   ur: 'اردو'
 } as const;
 
+// Lab Access Password Component
+function LabAccessForm({ onAccessGranted }: { onAccessGranted: () => void }) {
+  const [password, setPassword] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!password.trim()) {
+      setError('Please enter the lab access password');
+      return;
+    }
+
+    setIsLoading(true);
+    setError('');
+
+    try {
+      const response = await fetch(`${API_URL}/auth/verify-lab-access`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ password: password.trim() }),
+      });
+
+      let data: any = {};
+      try { data = await response.json(); } catch { /* ignore non-JSON */ }
+
+      if (!response.ok) {
+        const detail = data?.detail || response.statusText || "Request failed";
+        throw new Error(detail);
+      }
+
+      // Store lab access in localStorage for session persistence
+      localStorage.setItem('lab_access_granted', 'true');
+      onAccessGranted();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Network error — check that the API is running";
+      setError(msg);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-100 via-white to-purple-50">
+      <div className="max-w-md w-full mx-4">
+        <div className="bg-white rounded-2xl shadow-xl p-8 border border-purple-100">
+          <div className="text-center mb-8">
+            <div className="w-16 h-16 bg-gradient-to-br from-purple-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-4">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="text-white">
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2" stroke="currentColor" strokeWidth="2"/>
+                <circle cx="12" cy="16" r="1" fill="currentColor"/>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4" stroke="currentColor" strokeWidth="2"/>
+              </svg>
+            </div>
+            <h1 className="text-3xl font-bold text-gray-900 mb-2">Lab Access Required</h1>
+            <p className="text-gray-600">Please enter the lab access password to continue</p>
+          </div>
+
+          {error && (
+            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+              {error}
+            </div>
+          )}
+          
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <div>
+              <label htmlFor="lab-password" className="block text-sm font-medium text-gray-700 mb-2">
+                Lab Access Password
+              </label>
+              <input
+                id="lab-password"
+                type="password"
+                required
+                className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all duration-200 text-gray-700 placeholder-purple-300"
+                placeholder="Enter lab access password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+            </div>
+            
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="w-full bg-gradient-to-r from-purple-500 to-purple-600 text-white font-semibold py-3 px-4 rounded-lg hover:from-purple-600 hover:to-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 transform transition-all duration-200 hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
+            >
+              {isLoading ? (
+                <div className="flex items-center justify-center">
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                  Verifying Access...
+                </div>
+              ) : (
+                'Access Lab'
+              )}
+            </button>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // Login Component
 function LoginForm({ onLogin }: { onLogin: (user: User, token: string) => void }) {
   const [username, setUsername] = useState('');
@@ -238,7 +343,7 @@ function ChatInterface({ user, token, onLogout }: { user: User; token: string; o
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
 
-  useEffect(()=>{
+  useEffect(() => {
     const base = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
     const newSocket = io(base, {
       path: '/socket.io',
@@ -263,7 +368,9 @@ function ChatInterface({ user, token, onLogout }: { user: User; token: string; o
     newSocket.on('message_history', (history: Message[]) => setMessages(history));
     newSocket.on('new_message', (m: Message) => setMessages(prev => [...prev, m]));
   
-    return () => newSocket.close();
+    return () => {
+      newSocket.close();
+    };
   }, [token]);
   
   useEffect(() => {
@@ -489,9 +596,16 @@ export default function Home() {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [isClient, setIsClient] = useState(false);
+  const [hasLabAccess, setHasLabAccess] = useState(false);
 
   useEffect(() => {
     setIsClient(true);
+    // Check for lab access first
+    const labAccess = localStorage.getItem('lab_access_granted');
+    if (labAccess === 'true') {
+      setHasLabAccess(true);
+    }
+    
     // Check for stored token and user info
     const storedToken = localStorage.getItem('auth_token');
     const storedUser = localStorage.getItem('user_info');
@@ -523,6 +637,10 @@ export default function Home() {
     localStorage.removeItem('user_info');
   };
 
+  const handleLabAccessGranted = () => {
+    setHasLabAccess(true);
+  };
+
   if (!isClient) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-100 via-white to-purple-50">
@@ -534,9 +652,16 @@ export default function Home() {
     );
   }
 
+  // Show lab access form if no lab access
+  if (!hasLabAccess) {
+    return <LabAccessForm onAccessGranted={handleLabAccessGranted} />;
+  }
+
+  // Show login form if no user/token
   if (!user || !token) {
     return <LoginForm onLogin={handleLogin} />;
   }
 
+  // Show chat interface if authenticated
   return <ChatInterface user={user} token={token} onLogout={handleLogout} />;
 }
