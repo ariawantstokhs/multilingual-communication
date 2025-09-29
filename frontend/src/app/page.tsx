@@ -67,7 +67,7 @@ function LabAccessForm({ onAccessGranted }: { onAccessGranted: () => void }) {
 
       if (!response.ok) {
         const detail =
-          typeof data === 'object' && data !== null && 'detail' in data && typeof (data as any).detail === 'string'
+          typeof data === 'object' && data !== null && 'detail' in data && typeof (data as { detail?: string }).detail === 'string'
             ? (data as { detail?: string }).detail
             : response.statusText || "Request failed";
         throw new Error(detail);
@@ -183,7 +183,7 @@ function LoginForm({ onLogin }: { onLogin: (user: User, token: string) => void }
 
       if (!response.ok) {
         const detail =
-          typeof data === 'object' && data !== null && 'detail' in data && typeof (data as any).detail === 'string'
+          typeof data === 'object' && data !== null && 'detail' in data && typeof (data as { detail?: string }).detail === 'string'
             ? (data as { detail?: string }).detail
             : response.statusText || "Request failed";
         throw new Error(detail);
@@ -206,7 +206,7 @@ function LoginForm({ onLogin }: { onLogin: (user: User, token: string) => void }
       try { loginData = await loginRes.json(); } catch { /* ignore non-JSON */ }
       if (!loginRes.ok) {
         const detail =
-          typeof loginData === 'object' && loginData !== null && 'detail' in loginData && typeof (loginData as any).detail === 'string'
+          typeof loginData === 'object' && loginData !== null && 'detail' in loginData && typeof (loginData as { detail?: string }).detail === 'string'
             ? (loginData as { detail?: string }).detail
             : "Registration successful but login failed";
         throw new Error(detail);
