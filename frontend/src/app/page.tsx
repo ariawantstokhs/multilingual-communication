@@ -62,11 +62,14 @@ function LabAccessForm({ onAccessGranted }: { onAccessGranted: () => void }) {
         body: JSON.stringify({ password: password.trim() }),
       });
 
-      let data: any = {};
+      let data: unknown = {};
       try { data = await response.json(); } catch { /* ignore non-JSON */ }
 
       if (!response.ok) {
-        const detail = data?.detail || response.statusText || "Request failed";
+        const detail =
+          typeof data === 'object' && data !== null && 'detail' in data && typeof (data as any).detail === 'string'
+            ? (data as { detail?: string }).detail
+            : response.statusText || "Request failed";
         throw new Error(detail);
       }
 
@@ -175,14 +178,14 @@ function LoginForm({ onLogin }: { onLogin: (user: User, token: string) => void }
         }),
       });
 
-      // If fetch failed due to CORS / network, res won't exist; but if we got here, parse JSON safely
-      let data: any = {};
+      let data: unknown = {};
       try { data = await response.json(); } catch { /* ignore non-JSON */ }
 
       if (!response.ok) {
-        // Show API error if present; otherwise hint at CORS/misconfig
-        const detail = data?.detail || response.statusText || "Request failed";
-        // Common “Failed to fetch” happens before this; but if we’re here and status is 0 or 4xx/5xx, show detail
+        const detail =
+          typeof data === 'object' && data !== null && 'detail' in data && typeof (data as any).detail === 'string'
+            ? (data as { detail?: string }).detail
+            : response.statusText || "Request failed";
         throw new Error(detail);
       }
 
@@ -199,13 +202,16 @@ function LoginForm({ onLogin }: { onLogin: (user: User, token: string) => void }
         body: JSON.stringify({ username: username.trim(), password }),
       });
   
-      const loginData = await loginRes.json().catch(() => ({}));
+      let loginData: unknown = {};
+      try { loginData = await loginRes.json(); } catch { /* ignore non-JSON */ }
       if (!loginRes.ok) {
-        throw new Error(
-          loginData?.detail || "Registration successful but login failed"
-        );
+        const detail =
+          typeof loginData === 'object' && loginData !== null && 'detail' in loginData && typeof (loginData as any).detail === 'string'
+            ? (loginData as { detail?: string }).detail
+            : "Registration successful but login failed";
+        throw new Error(detail);
       }
-  
+
       const authData = loginData as AuthResponse;
       onLogin(authData.user, authData.access_token);
     } catch (err) {
