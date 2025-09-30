@@ -270,7 +270,7 @@ function LabAccessForm({ onAccessGranted }: { onAccessGranted: () => void }) {
 }
 
 // Login Component
-function LoginForm({ onLogin }: { onLogin: (user: User, token: string) => void }) {
+function LoginForm({ onLogin, onBackendError }: { onLogin: (user: User, token: string) => void; onBackendError: () => void }) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [selectedLanguage, setSelectedLanguage] = useState<keyof typeof LANGUAGES>('en');
@@ -343,11 +343,19 @@ function LoginForm({ onLogin }: { onLogin: (user: User, token: string) => void }
       const authData = loginData as AuthResponse;
       onLogin(authData.user, authData.access_token);
     } catch (err) {
-      // If it’s a true network/CORS error, fetch throws before we get a response
+      // If it's a network error, the backend might have restarted with a new URL
+      if (err instanceof Error && (err.message.includes('Failed to fetch') || err.message.includes('NetworkError'))) {
+        setError('Cannot reach backend. The backend URL may have changed. Redirecting to URL setup...');
+        setTimeout(() => {
+          onBackendError();
+        }, 2000);
+        return;
+      }
+
       const msg =
         err instanceof Error
           ? err.message
-          : "Network error — check that the API is running on http://localhost:8000 and CORS is set";
+          : "Network error — please check with your researcher";
       setError(msg);
     } finally {
       setIsLoading(false);
@@ -464,13 +472,14 @@ function LoginForm({ onLogin }: { onLogin: (user: User, token: string) => void }
 }
 
 // Chat Interface Component
-function ChatInterface({ user, token, onLogout }: { user: User; token: string; onLogout?: () => void }) {
+function ChatInterface({ user, token, onLogout, onBackendError }: { user: User; token: string; onLogout?: () => void; onBackendError: () => void }) {
   const [socket, setSocket] = useState<Socket | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const [preferredLanguage, setPreferredLanguage] = useState<keyof typeof LANGUAGES>(user.preferred_language);
   const [isConnected, setIsConnected] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [connectionError, setConnectionError] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const scrollToBottom = () => {
@@ -485,29 +494,42 @@ function ChatInterface({ user, token, onLogout }: { user: User; token: string; o
       path: '/socket.io',
       transports: ['websocket', 'polling'],
       reconnection: true,
+      reconnectionAttempts: 5,
+      reconnectionDelay: 1000,
     });
     setSocket(newSocket);
-  
+
     newSocket.on('connect', () => {
       setIsConnected(true);
+      setConnectionError(false);
       newSocket.emit('authenticate', { token });
     });
-  
+
     newSocket.on('disconnect', () => {
       setIsConnected(false);
       setIsAuthenticated(false);
     });
-  
+
+    newSocket.on('connect_error', () => {
+      setConnectionError(true);
+      // After multiple failed reconnection attempts, redirect to URL setup
+      setTimeout(() => {
+        if (!isConnected) {
+          onBackendError();
+        }
+      }, 5000); // Give 5 seconds before redirecting
+    });
+
     newSocket.on('auth_success', () => setIsAuthenticated(true));
     newSocket.on('auth_error', () => setIsAuthenticated(false));
-  
+
     newSocket.on('message_history', (history: Message[]) => setMessages(history));
     newSocket.on('new_message', (m: Message) => setMessages(prev => [...prev, m]));
-  
+
     return () => {
       newSocket.close();
     };
-  }, [token]);
+  }, [token, isConnected, onBackendError]);
   
   useEffect(() => {
     scrollToBottom();
@@ -718,7 +740,11 @@ function ChatInterface({ user, token, onLogout }: { user: User; token: string; o
           {!isConnected && (
             <div className="mt-3 flex items-center space-x-2 text-red-500 text-sm">
               <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
-              <span>Reconnecting to server...</span>
+              <span>
+                {connectionError
+                  ? 'Cannot reach backend. Backend URL may have changed. Redirecting in 5s...'
+                  : 'Reconnecting to server...'}
+              </span>
             </div>
           )}
         </div>
@@ -778,6 +804,16 @@ export default function Home() {
     setHasApiUrl(true);
   };
 
+  const handleBackendError = () => {
+    // Reset everything and go back to URL input
+    setHasApiUrl(false);
+    setUser(null);
+    setToken(null);
+    localStorage.removeItem('api_url');
+    localStorage.removeItem('auth_token');
+    localStorage.removeItem('user_info');
+  };
+
   if (!isClient) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-100 via-white to-purple-50">
@@ -796,9 +832,9 @@ export default function Home() {
 
   // Step 2: Show login form if no user/token
   if (!user || !token) {
-    return <LoginForm onLogin={handleLogin} />;
+    return <LoginForm onLogin={handleLogin} onBackendError={handleBackendError} />;
   }
 
   // Step 3: Show chat interface if authenticated
-  return <ChatInterface user={user} token={token} onLogout={handleLogout} />;
+  return <ChatInterface user={user} token={token} onLogout={handleLogout} onBackendError={handleBackendError} />;
 }
