@@ -529,7 +529,7 @@ function ChatInterface({ user, token, onLogout, onBackendError }: { user: User; 
     return () => {
       newSocket.close();
     };
-  }, [token, isConnected, onBackendError]);
+  }, [token, onBackendError]);
   
   useEffect(() => {
     scrollToBottom();

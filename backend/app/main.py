@@ -91,8 +91,13 @@ def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(securit
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-# Initialize Socket.IO
-sio = socketio.AsyncServer(async_mode='asgi', cors_allowed_origins="*")
+# Initialize Socket.IO with wildcard CORS for development
+sio = socketio.AsyncServer(
+    async_mode='asgi',
+    cors_allowed_origins="*",
+    logger=True,
+    engineio_logger=True
+)
 socket_app = socketio.ASGIApp(sio)
 
 # CORS configuration
