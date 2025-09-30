@@ -20,9 +20,9 @@ _mongo_db: Optional[Database] = None
 def _get_mongo_uri() -> str:
     """Get MongoDB URI from environment variables."""
     load_dotenv()
-    mongo_uri = os.getenv("MONGODB_URI")
+    mongo_uri = os.getenv("MONGODB_URL")
     if not mongo_uri:
-        raise RuntimeError("MONGODB_URI is not set. Add it to backend/.env or environment.")
+        raise RuntimeError("MONGODB_URL is not set. Add it to backend/.env or environment.")
     return mongo_uri
 
 
@@ -38,38 +38,18 @@ def connect_to_mongo() -> Database:
     try:
         mongo_uri = _get_mongo_uri()
 
-        # Optional debugging/override flags from env
-        tls_allow_invalid = os.getenv("MONGODB_TLS_ALLOW_INVALID_CERTS", "false").lower() in {"1", "true", "yes"}
-        direct_connection = os.getenv("MONGODB_DIRECT_CONNECTION")
-        direct_connection_flag = None if direct_connection is None else direct_connection.lower() in {"1", "true", "yes"}
-        custom_ca_file = os.getenv("MONGODB_TLS_CA_FILE")
+        # Simple connection - let the URI handle all config
+        _mongo_client = MongoClient(mongo_uri)
 
-        # Connection options for better reliability
-        mongo_kwargs = {
-            "serverSelectionTimeoutMS": 10000,
-            "connectTimeoutMS": 10000,
-            "maxPoolSize": 50,
-            "minPoolSize": 5,
-            "maxIdleTimeMS": 30000,
-            "tlsCAFile": custom_ca_file or certifi.where(),
-        }
-
-        if tls_allow_invalid:
-            mongo_kwargs["tlsAllowInvalidCertificates"] = True
-        if direct_connection_flag is not None:
-            mongo_kwargs["directConnection"] = direct_connection_flag
-
-        _mongo_client = MongoClient(mongo_uri, **mongo_kwargs)
-        
         # Test the connection
         _mongo_client.admin.command('ping')
-        
-        db_name = os.getenv("MONGODB_DB", "app")
+
+        db_name = os.getenv("MONGODB_DB", "global_chat")
         _mongo_db = _mongo_client[db_name]
-        
+
         logger.info(f"Successfully connected to MongoDB database: {db_name}")
         return _mongo_db
-        
+
     except (ConnectionFailure, ServerSelectionTimeoutError) as e:
         logger.error(f"Failed to connect to MongoDB: {e}")
         raise RuntimeError(f"MongoDB connection failed: {e}")

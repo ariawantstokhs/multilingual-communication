@@ -209,3 +209,5 @@ __marimo__/
 # others
 node_modules/
 .next/
+
+CLAUDE.md
