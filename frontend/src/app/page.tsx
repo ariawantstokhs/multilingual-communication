@@ -39,8 +39,9 @@ const LANGUAGES = {
 function ApiUrlForm({ onUrlSet }: { onUrlSet: (url: string) => void }) {
   const [apiUrl, setApiUrl] = useState('');
   const [error, setError] = useState('');
+  const [isValidating, setIsValidating] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmedUrl = apiUrl.trim();
 
@@ -52,10 +53,47 @@ function ApiUrlForm({ onUrlSet }: { onUrlSet: (url: string) => void }) {
     // Basic URL validation
     try {
       new URL(trimmedUrl);
-      localStorage.setItem('api_url', trimmedUrl);
-      onUrlSet(trimmedUrl);
     } catch {
       setError('Please enter a valid URL (e.g., https://example.trycloudflare.com)');
+      return;
+    }
+
+    // Validate that the backend is reachable
+    setIsValidating(true);
+    setError('');
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+
+      const response = await fetch(`${trimmedUrl}/health`, {
+        method: 'GET',
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        throw new Error('Backend responded but is not healthy');
+      }
+
+      // Success - save and proceed
+      localStorage.setItem('api_url', trimmedUrl);
+      onUrlSet(trimmedUrl);
+    } catch (err) {
+      if (err instanceof Error) {
+        if (err.name === 'AbortError') {
+          setError('Connection timeout. Please check the URL and try again.');
+        } else if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
+          setError('Cannot reach backend. Please verify the URL is correct and the backend is running.');
+        } else {
+          setError('Backend is not responding correctly. Please check with your researcher.');
+        }
+      } else {
+        setError('An unexpected error occurred. Please try again.');
+      }
+    } finally {
+      setIsValidating(false);
     }
   };
 
@@ -102,9 +140,17 @@ function ApiUrlForm({ onUrlSet }: { onUrlSet: (url: string) => void }) {
 
             <button
               type="submit"
-              className="w-full bg-gradient-to-r from-blue-500 to-blue-600 text-white font-semibold py-3 px-4 rounded-lg hover:from-blue-600 hover:to-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transform transition-all duration-200 hover:scale-[1.02]"
+              disabled={isValidating}
+              className="w-full bg-gradient-to-r from-blue-500 to-blue-600 text-white font-semibold py-3 px-4 rounded-lg hover:from-blue-600 hover:to-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transform transition-all duration-200 hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
             >
-              Continue
+              {isValidating ? (
+                <div className="flex items-center justify-center">
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                  Validating Backend...
+                </div>
+              ) : (
+                'Continue'
+              )}
             </button>
           </form>
         </div>

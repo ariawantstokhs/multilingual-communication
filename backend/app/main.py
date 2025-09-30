@@ -201,11 +201,21 @@ async def send_message(sid, data):
 # API endpoints
 @app.get("/health")
 async def health_check():
+    """Health check endpoint for validating backend connectivity."""
     try:
         db = get_db()
-        return {"status": "ok", "db": str(db.name)}
+        # Quick DB connection test
+        db.command('ping')
+        return {
+            "status": "healthy",
+            "service": "multilingual-chat-backend",
+            "database": "connected"
+        }
     except Exception as e:
-        return {"status": "error", "message": str(e)}
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Service unhealthy: {str(e)}"
+        )
 
 @app.get("/")
 async def root():
