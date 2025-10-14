@@ -36,4 +36,23 @@ class Message(BaseModel):
 
 class LabAccessRequest(BaseModel):
     password: str
-    
+
+class TranslationProfile(BaseModel):
+    username: str
+    profile_name: str
+    sample_texts: list[str]  # 3-5 sample texts showing user's writing style
+    target_language: str  # Language to personalize (en, ko, es, ur)
+    created_at: Optional[datetime] = None
+    is_active: bool = False
+
+class ProfileCreate(BaseModel):
+    profile_name: str
+    sample_texts: list[str]
+    target_language: str
+
+class ProfileResponse(BaseModel):
+    profile_name: str
+    sample_texts: list[str]
+    target_language: str
+    created_at: Optional[datetime] = None
+    is_active: bool = False

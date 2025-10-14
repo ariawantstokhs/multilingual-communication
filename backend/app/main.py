@@ -11,8 +11,8 @@ import bcrypt
 import jwt
 
 from .db import connect_to_mongo, close_mongo_connection, get_db
-from .models import Message, User, UserCreate, UserLogin, UserResponse, LabAccessRequest
-from .translation import translate_message
+from .models import Message, User, UserCreate, UserLogin, UserResponse, LabAccessRequest, TranslationProfile, ProfileCreate, ProfileResponse
+from .translation import translate_message, translate_with_profile
 from datetime import datetime, timedelta
 from typing import Optional
 import json
@@ -177,9 +177,24 @@ async def send_message(sid, data):
 
         db = get_db()
         messages_collection = db.messages
+        profiles_collection = db.translation_profiles
 
-        # 🔽 translate using the user's preferred language as the source
-        translations = translate_message(data['text'], user_lang)
+        # Check if user has an active profile
+        active_profile = profiles_collection.find_one({
+            "username": username,
+            "is_active": True
+        })
+
+        # Use personalized translation if profile exists, otherwise standard
+        if active_profile:
+            translations = translate_with_profile(
+                data['text'],
+                user_lang,
+                active_profile['sample_texts'],
+                active_profile['target_language']
+            )
+        else:
+            translations = translate_message(data['text'], user_lang)
 
         message_doc = {
             'sender': username,
@@ -343,26 +358,311 @@ async def get_current_user_info(current_user: str = Depends(get_current_user)):
     try:
         db = get_db()
         users_collection = db.users
-        
+
         user = users_collection.find_one({"username": current_user})
         if not user:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="User not found"
             )
-        
+
         return UserResponse(
             username=user["username"],
             preferred_language=user["preferred_language"],
             created_at=user["created_at"],
             last_login=user["last_login"]
         )
-        
+
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get user info: {str(e)}"
+        )
+
+# Profile Management Endpoints
+@app.post("/profiles/create", response_model=ProfileResponse)
+async def create_profile(profile_data: ProfileCreate, current_user: str = Depends(get_current_user)):
+    """Create a new translation profile."""
+    try:
+        db = get_db()
+        profiles_collection = db.translation_profiles
+
+        # Validate sample texts
+        if len(profile_data.sample_texts) < 3:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="At least 3 sample texts are required"
+            )
+
+        if len(profile_data.sample_texts) > 5:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Maximum 5 sample texts allowed"
+            )
+
+        # Check if profile name already exists for this user
+        existing = profiles_collection.find_one({
+            "username": current_user,
+            "profile_name": profile_data.profile_name
+        })
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Profile name already exists"
+            )
+
+        # Create profile document
+        profile_doc = {
+            "username": current_user,
+            "profile_name": profile_data.profile_name,
+            "sample_texts": profile_data.sample_texts,
+            "target_language": profile_data.target_language,
+            "created_at": datetime.utcnow(),
+            "is_active": False
+        }
+
+        profiles_collection.insert_one(profile_doc)
+
+        return ProfileResponse(
+            profile_name=profile_doc["profile_name"],
+            sample_texts=profile_doc["sample_texts"],
+            target_language=profile_doc["target_language"],
+            created_at=profile_doc["created_at"],
+            is_active=profile_doc["is_active"]
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to create profile: {str(e)}"
+        )
+
+@app.get("/profiles/list")
+async def list_profiles(current_user: str = Depends(get_current_user)):
+    """List all profiles for the current user."""
+    try:
+        db = get_db()
+        profiles_collection = db.translation_profiles
+
+        profiles = list(profiles_collection.find({"username": current_user}))
+
+        return [
+            ProfileResponse(
+                profile_name=p["profile_name"],
+                sample_texts=p["sample_texts"],
+                target_language=p["target_language"],
+                created_at=p["created_at"],
+                is_active=p.get("is_active", False)
+            )
+            for p in profiles
+        ]
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to list profiles: {str(e)}"
+        )
+
+@app.get("/profiles/{profile_name}", response_model=ProfileResponse)
+async def get_profile(profile_name: str, current_user: str = Depends(get_current_user)):
+    """Get a specific profile."""
+    try:
+        db = get_db()
+        profiles_collection = db.translation_profiles
+
+        profile = profiles_collection.find_one({
+            "username": current_user,
+            "profile_name": profile_name
+        })
+
+        if not profile:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Profile not found"
+            )
+
+        return ProfileResponse(
+            profile_name=profile["profile_name"],
+            sample_texts=profile["sample_texts"],
+            target_language=profile["target_language"],
+            created_at=profile["created_at"],
+            is_active=profile.get("is_active", False)
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get profile: {str(e)}"
+        )
+
+@app.put("/profiles/{profile_name}", response_model=ProfileResponse)
+async def update_profile(profile_name: str, profile_data: ProfileCreate, current_user: str = Depends(get_current_user)):
+    """Update an existing profile."""
+    try:
+        db = get_db()
+        profiles_collection = db.translation_profiles
+
+        # Validate sample texts
+        if len(profile_data.sample_texts) < 3:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="At least 3 sample texts are required"
+            )
+
+        if len(profile_data.sample_texts) > 5:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Maximum 5 sample texts allowed"
+            )
+
+        # Check if profile exists
+        existing_profile = profiles_collection.find_one({
+            "username": current_user,
+            "profile_name": profile_name
+        })
+
+        if not existing_profile:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Profile not found"
+            )
+
+        # If renaming, check new name doesn't conflict
+        if profile_data.profile_name != profile_name:
+            name_conflict = profiles_collection.find_one({
+                "username": current_user,
+                "profile_name": profile_data.profile_name
+            })
+            if name_conflict:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="New profile name already exists"
+                )
+
+        # Update profile
+        profiles_collection.update_one(
+            {"username": current_user, "profile_name": profile_name},
+            {"$set": {
+                "profile_name": profile_data.profile_name,
+                "sample_texts": profile_data.sample_texts,
+                "target_language": profile_data.target_language
+            }}
+        )
+
+        # Fetch updated profile
+        updated_profile = profiles_collection.find_one({
+            "username": current_user,
+            "profile_name": profile_data.profile_name
+        })
+
+        return ProfileResponse(
+            profile_name=updated_profile["profile_name"],
+            sample_texts=updated_profile["sample_texts"],
+            target_language=updated_profile["target_language"],
+            created_at=updated_profile["created_at"],
+            is_active=updated_profile.get("is_active", False)
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to update profile: {str(e)}"
+        )
+
+@app.delete("/profiles/{profile_name}")
+async def delete_profile(profile_name: str, current_user: str = Depends(get_current_user)):
+    """Delete a profile."""
+    try:
+        db = get_db()
+        profiles_collection = db.translation_profiles
+
+        result = profiles_collection.delete_one({
+            "username": current_user,
+            "profile_name": profile_name
+        })
+
+        if result.deleted_count == 0:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Profile not found"
+            )
+
+        return {"message": "Profile deleted successfully"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete profile: {str(e)}"
+        )
+
+@app.put("/profiles/{profile_name}/activate")
+async def activate_profile(profile_name: str, current_user: str = Depends(get_current_user)):
+    """Activate a profile (deactivates all others)."""
+    try:
+        db = get_db()
+        profiles_collection = db.translation_profiles
+
+        # Check if profile exists
+        profile = profiles_collection.find_one({
+            "username": current_user,
+            "profile_name": profile_name
+        })
+
+        if not profile:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Profile not found"
+            )
+
+        # Deactivate all profiles for this user
+        profiles_collection.update_many(
+            {"username": current_user},
+            {"$set": {"is_active": False}}
+        )
+
+        # Activate the selected profile
+        profiles_collection.update_one(
+            {"username": current_user, "profile_name": profile_name},
+            {"$set": {"is_active": True}}
+        )
+
+        return {"message": f"Profile '{profile_name}' activated successfully"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to activate profile: {str(e)}"
+        )
+
+@app.put("/profiles/deactivate-all")
+async def deactivate_all_profiles(current_user: str = Depends(get_current_user)):
+    """Deactivate all profiles for the current user."""
+    try:
+        db = get_db()
+        profiles_collection = db.translation_profiles
+
+        profiles_collection.update_many(
+            {"username": current_user},
+            {"$set": {"is_active": False}}
+        )
+
+        return {"message": "All profiles deactivated"}
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to deactivate profiles: {str(e)}"
         )
 
