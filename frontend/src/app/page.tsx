@@ -43,139 +43,14 @@ const LANGUAGES = {
   ur: 'اردو'
 } as const;
 
-// API URL Configuration Component
-function ApiUrlForm({ onUrlSet }: { onUrlSet: (url: string) => void }) {
-  const [apiUrl, setApiUrl] = useState('');
-  const [error, setError] = useState('');
-  const [isValidating, setIsValidating] = useState(false);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const trimmedUrl = apiUrl.trim();
-
-    if (!trimmedUrl) {
-      setError('Please enter the API URL');
-      return;
-    }
-
-    // Basic URL validation
-    try {
-      new URL(trimmedUrl);
-    } catch {
-      setError('Please enter a valid URL (e.g., https://example.trycloudflare.com)');
-      return;
-    }
-
-    // Validate that the backend is reachable
-    setIsValidating(true);
-    setError('');
-
-    try {
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
-
-      const response = await fetch(`${trimmedUrl}/health`, {
-        method: 'GET',
-        signal: controller.signal,
-      });
-
-      clearTimeout(timeoutId);
-
-      if (!response.ok) {
-        throw new Error('Backend responded but is not healthy');
-      }
-
-      // Success - save and proceed
-      localStorage.setItem('api_url', trimmedUrl);
-      onUrlSet(trimmedUrl);
-    } catch (err) {
-      if (err instanceof Error) {
-        if (err.name === 'AbortError') {
-          setError('Connection timeout. Please check the URL and try again.');
-        } else if (err.message.includes('Failed to fetch') || err.message.includes('NetworkError')) {
-          setError('Cannot reach backend. Please verify the URL is correct and the backend is running.');
-        } else {
-          setError('Backend is not responding correctly. Please check with your researcher.');
-        }
-      } else {
-        setError('An unexpected error occurred. Please try again.');
-      }
-    } finally {
-      setIsValidating(false);
-    }
-  };
-
-  return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-100 via-white to-blue-50">
-      <div className="max-w-md w-full mx-4">
-        <div className="bg-white rounded-2xl shadow-xl p-8 border border-blue-100">
-          <div className="text-center mb-8">
-            <div className="w-16 h-16 bg-gradient-to-br from-blue-500 to-blue-600 rounded-full flex items-center justify-center mx-auto mb-4">
-              <svg width="24" height="24" viewBox="0 0 24 24" fill="none" className="text-white">
-                <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                <polyline points="3.27 6.96 12 12.01 20.73 6.96" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                <line x1="12" y1="22.08" x2="12" y2="12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </div>
-            <h1 className="text-3xl font-bold text-gray-900 mb-2">Backend Configuration</h1>
-            <p className="text-gray-600">Enter the API URL provided by your researcher</p>
-          </div>
-
-          {error && (
-            <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-              {error}
-            </div>
-          )}
-
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div>
-              <label htmlFor="api-url" className="block text-sm font-medium text-gray-700 mb-2">
-                Backend API URL
-              </label>
-              <input
-                id="api-url"
-                type="text"
-                required
-                className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200 text-gray-700 placeholder-blue-300"
-                placeholder="https://example.trycloudflare.com"
-                value={apiUrl}
-                onChange={(e) => setApiUrl(e.target.value)}
-              />
-              <p className="mt-2 text-xs text-gray-500">
-                Ask your researcher for the Cloudflare Tunnel or ngrok URL
-              </p>
-            </div>
-
-            <button
-              type="submit"
-              disabled={isValidating}
-              className="w-full bg-gradient-to-r from-blue-500 to-blue-600 text-white font-semibold py-3 px-4 rounded-lg hover:from-blue-600 hover:to-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 transform transition-all duration-200 hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100"
-            >
-              {isValidating ? (
-                <div className="flex items-center justify-center">
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
-                  Validating Backend...
-                </div>
-              ) : (
-                'Continue'
-              )}
-            </button>
-          </form>
-        </div>
-      </div>
-    </div>
-  );
-}
+// Hardcoded API URL for localhost testing
+const API_URL = 'http://localhost:8000';
 
 // Lab Access Password Component
 function LabAccessForm({ onAccessGranted }: { onAccessGranted: () => void }) {
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
-
-  const API_URL = typeof window !== 'undefined'
-    ? (localStorage.getItem('api_url') || 'http://localhost:8000')
-    : 'http://localhost:8000';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -285,10 +160,6 @@ function LoginForm({ onLogin, onBackendError }: { onLogin: (user: User, token: s
   const [isLogin, setIsLogin] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
-
-  const API_URL = typeof window !== 'undefined'
-    ? (localStorage.getItem('api_url') || 'http://localhost:8000')
-    : 'http://localhost:8000';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -487,10 +358,6 @@ function ProfileModal({ token, onClose }: { token: string; onClose: () => void }
   const [editingProfile, setEditingProfile] = useState<TranslationProfile | null>(null);
   const [error, setError] = useState('');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
-
-  const API_URL = typeof window !== 'undefined'
-    ? (localStorage.getItem('api_url') || 'http://localhost:8000')
-    : 'http://localhost:8000';
 
   useEffect(() => {
     fetchProfiles();
@@ -715,10 +582,6 @@ function ProfileCreateForm({ token, onSuccess, onCancel }: { token: string; onSu
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
 
-  const API_URL = typeof window !== 'undefined'
-    ? (localStorage.getItem('api_url') || 'http://localhost:8000')
-    : 'http://localhost:8000';
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -876,10 +739,6 @@ function ProfileEditForm({ token, profile, onSuccess, onCancel }: { token: strin
   const [sampleTexts, setSampleTexts] = useState<string[]>([...profile.sample_texts]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
-
-  const API_URL = typeof window !== 'undefined'
-    ? (localStorage.getItem('api_url') || 'http://localhost:8000')
-    : 'http://localhost:8000';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1048,10 +907,6 @@ function ChatInterface({ user, token, onLogout, onBackendError }: { user: User; 
   const [activeProfile, setActiveProfile] = useState<TranslationProfile | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  const API_URL = typeof window !== 'undefined'
-    ? (localStorage.getItem('api_url') || 'http://localhost:8000')
-    : 'http://localhost:8000';
-
   // Fetch active profile on mount
   useEffect(() => {
     const fetchActiveProfile = async () => {
@@ -1076,10 +931,7 @@ function ChatInterface({ user, token, onLogout, onBackendError }: { user: User; 
   };
 
   useEffect(() => {
-    const base = typeof window !== 'undefined'
-      ? (localStorage.getItem('api_url') || 'http://localhost:8000')
-      : 'http://localhost:8000';
-    const newSocket = io(base, {
+    const newSocket = io(API_URL, {
       path: '/socket.io',
       transports: ['websocket', 'polling'],
       reconnection: true,
@@ -1389,16 +1241,9 @@ export default function Home() {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [isClient, setIsClient] = useState(false);
-  const [hasApiUrl, setHasApiUrl] = useState(false);
 
   useEffect(() => {
     setIsClient(true);
-
-    // Check for API URL first
-    const apiUrl = localStorage.getItem('api_url');
-    if (apiUrl) {
-      setHasApiUrl(true);
-    }
 
     // Check for stored token and user info
     const storedToken = localStorage.getItem('auth_token');
@@ -1431,16 +1276,10 @@ export default function Home() {
     localStorage.removeItem('user_info');
   };
 
-  const handleApiUrlSet = (url: string) => {
-    setHasApiUrl(true);
-  };
-
   const handleBackendError = () => {
-    // Reset everything and go back to URL input
-    setHasApiUrl(false);
+    // Reset user session on backend error
     setUser(null);
     setToken(null);
-    localStorage.removeItem('api_url');
     localStorage.removeItem('auth_token');
     localStorage.removeItem('user_info');
   };
@@ -1456,16 +1295,11 @@ export default function Home() {
     );
   }
 
-  // Step 1: Show API URL form if no API URL set
-  if (!hasApiUrl) {
-    return <ApiUrlForm onUrlSet={handleApiUrlSet} />;
-  }
-
-  // Step 2: Show login form if no user/token
+  // Step 1: Show login form if no user/token
   if (!user || !token) {
     return <LoginForm onLogin={handleLogin} onBackendError={handleBackendError} />;
   }
 
-  // Step 3: Show chat interface if authenticated
+  // Step 2: Show chat interface if authenticated
   return <ChatInterface user={user} token={token} onLogout={handleLogout} onBackendError={handleBackendError} />;
 }
