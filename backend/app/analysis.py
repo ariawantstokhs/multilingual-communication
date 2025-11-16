@@ -12,56 +12,48 @@ from openai import OpenAI
 def analyze_identity_gap(mt_version: str, edited_version: str) -> dict:
     client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-    prompt = f"""Analyze the identity gap.
+    prompt = f"""Analyze the Personal-Enacted Identity Gap between machine translation and user-edited version.
 
 Machine Translation: {mt_version}
 User-Edited Version: {edited_version}
 
-The scale has TWO FACTORS based on factor analysis:
+Identify specific instances where MT created identity gaps and user edits restored authentic self-expression.
 
-FACTOR 1 - INAUTHENTICITY (Items 4,5,6,7,8,9,10):
-Where MT causes the user to appear inauthentic. Identify where MT created these issues:
-- Item 4: "I express myself in a certain way that is not the real me"
-- Item 5: "I do not reveal important aspects of myself"
-- Item 6: "I often lose sense of who I am"
-- Item 7: "I do not express the real me when different from expectations"
-- Item 8: "I sometimes mislead others about who I really am"
-- Item 9: "There is a difference between the real me and the impression I give"
-- Item 10: "I speak truthfully about myself" (reversed - MT fails this)
+Use these validated criteria (Personal-Enacted Identity Gap Scale) to identify gaps:
+- User expresses themselves in ways that are not the real them
+- User does not reveal important aspects of themselves
+- User loses sense of who they are
+- User does not express real self when different from expectations
+- User misleads others about who they really are
+- There is difference between real self and impression given
+- User cannot speak truthfully about themselves
+- Others cannot get to know the real user
+- User cannot communicate consistently with who they really are
+- User cannot be themselves when communicating
+- User cannot freely express the real them
 
-FACTOR 2 - AUTHENTICITY (Items 1,2,3,11):
-Where user edits restore authentic self-expression. Identify what user restored:
-- Item 1: "Others get to know the real me"
-- Item 2: "I communicate in a way consistent with who I really am"
-- Item 3: "I can be myself when communicating"
-- Item 11: "I freely express the real me"
+For each change, identify how MT violated these criteria and how user edits restored authenticity.
 
 Return JSON:
 {{
-    "factor1_inauthenticity": [
+    "identity_gaps": [
         {{
-            "mt_issue": "The specific MT text that created inauthenticity",
-            "user_fix": "How the user corrected it",
-            "scale_item": "4, 5, 6, 7, 8, 9, or 10",
-            "explanation": "Brief explanation of the identity gap"
+            "mt_text": "The specific MT text that created the gap",
+            "user_edit": "How the user changed it",
+            "gap_type": "Brief category (e.g., formality mismatch, tone shift, cultural expression, emotional authenticity)",
+            "explanation": "How this change reduces the identity gap and restores authentic expression"
         }}
     ],
-    "factor2_authenticity": [
-        {{
-            "mt_failure": "Where MT failed to allow authentic expression",
-            "user_restoration": "How the user restored authenticity",
-            "scale_item": "1, 2, 3, or 11",
-            "explanation": "Brief explanation of what was restored"
-        }}
-    ],
-    "summary": "Overall summary of how user's edits reduce the Personal-Enacted Identity Gap"
-}}"""
+    "summary": "Overall summary of how the user's edits reduce the Personal-Enacted Identity Gap"
+}}
+
+Focus on meaningful changes that affect how authentically the user can express their identity."""
 
     try:
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "You are an expert in Communication Theory of Identity (CTI). Analyze identity gaps using the Personal-Enacted Identity Gap Scale's two-factor structure."},
+                {"role": "system", "content": "You are an expert in Communication Theory of Identity (CTI). Analyze Personal-Enacted Identity Gaps - the discrepancy between who someone is and how they express themselves in communication."},
                 {"role": "user", "content": prompt}
             ],
             response_format={"type": "json_object"},

@@ -699,3 +699,86 @@ async def toggle_profile_active(current_user: str = Depends(get_current_user)):
             detail=f"Failed to toggle profile: {str(e)}"
         )
 
+
+# Anonymous Translation Endpoints (No Auth Required)
+from pydantic import BaseModel
+from typing import Dict, Any
+
+class AnonymousTranslateRequest(BaseModel):
+    text: str
+    source_lang: str
+    target_lang: str
+    use_profile: bool = False
+    profile_data: Optional[Dict[str, Any]] = None
+
+class AnonymousTranslateResponse(BaseModel):
+    translated_text: str
+    source_lang: str
+    target_lang: str
+    used_profile: bool
+
+class AnonymousGapAnalysisRequest(BaseModel):
+    mt_version: str
+    edited_version: str
+
+@app.post("/translate", response_model=AnonymousTranslateResponse)
+async def anonymous_translate(request: AnonymousTranslateRequest):
+    """
+    Translate text without authentication.
+    Optionally uses a personal profile passed from client-side localStorage.
+    """
+    try:
+        if request.use_profile and request.profile_data:
+            # Use personalized translation with profile
+            gap_analysis = {
+                "common_inauthenticity_fixes": request.profile_data.get("common_inauthenticity_fixes", []),
+                "common_authenticity_patterns": request.profile_data.get("common_authenticity_patterns", []),
+                "identity_summary": request.profile_data.get("identity_summary", "")
+            }
+            translated_text = translate_with_gap_analysis(
+                text=request.text,
+                source_lang=request.source_lang,
+                gap_analysis=gap_analysis,
+                target_language=request.target_lang
+            )
+            used_profile = True
+        else:
+            # Standard translation
+            translations = translate_message(request.text, request.source_lang)
+            lang_key = f"text_{request.target_lang}"
+            translated_text = translations.get(lang_key, request.text)
+            used_profile = False
+
+        return AnonymousTranslateResponse(
+            translated_text=translated_text,
+            source_lang=request.source_lang,
+            target_lang=request.target_lang,
+            used_profile=used_profile
+        )
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Translation failed: {str(e)}"
+        )
+
+
+@app.post("/analyze", response_model=GapAnalysisResult)
+async def anonymous_analyze_gap(request: AnonymousGapAnalysisRequest):
+    """
+    Analyze identity gap without authentication.
+    Results are returned to client for localStorage storage.
+    """
+    try:
+        analysis_result = analyze_identity_gap(
+            mt_version=request.mt_version,
+            edited_version=request.edited_version
+        )
+        return GapAnalysisResult(**analysis_result)
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to analyze identity gap: {str(e)}"
+        )
+
