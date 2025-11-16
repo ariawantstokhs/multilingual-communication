@@ -11,8 +11,9 @@ import bcrypt
 import jwt
 
 from .db import connect_to_mongo, close_mongo_connection, get_db
-from .models import Message, User, UserCreate, UserLogin, UserResponse, LabAccessRequest, TranslationProfile, ProfileCreate, ProfileResponse
-from .translation import translate_message, translate_with_profile
+from .models import Message, User, UserCreate, UserLogin, UserResponse, LabAccessRequest, GapAnalysisRequest, GapAnalysisResult, TranslateWithAnalysisRequest, TranslateWithAnalysisResponse, PersonalProfileResponse
+from .translation import translate_message, translate_with_gap_analysis
+from .analysis import analyze_identity_gap
 from datetime import datetime, timedelta
 from typing import Optional
 import json
@@ -177,22 +178,30 @@ async def send_message(sid, data):
 
         db = get_db()
         messages_collection = db.messages
-        profiles_collection = db.translation_profiles
+        profiles_collection = db.personal_profiles
 
-        # Check if user has an active profile
+        # Check if user has an active personal profile
         active_profile = profiles_collection.find_one({
             "username": username,
             "is_active": True
         })
 
-        # Use personalized translation if profile exists, otherwise standard
-        if active_profile:
-            translations = translate_with_profile(
-                data['text'],
-                user_lang,
-                active_profile['sample_texts'],
-                active_profile['target_language']
-            )
+        # Use personalized translation if profile exists and is active
+        if active_profile and active_profile.get("analysis_count", 0) > 0:
+            # Build gap_analysis dict from profile using CTI two-factor structure
+            gap_analysis = {
+                "common_inauthenticity_fixes": active_profile.get("common_inauthenticity_fixes", []),
+                "common_authenticity_patterns": active_profile.get("common_authenticity_patterns", []),
+                "identity_summary": active_profile.get("identity_summary", "")
+            }
+
+            # Translate to all languages using personal profile
+            translations = {
+                'text_en': translate_with_gap_analysis(data['text'], user_lang, gap_analysis, "en") if user_lang != "en" else data['text'],
+                'text_ko': translate_with_gap_analysis(data['text'], user_lang, gap_analysis, "ko") if user_lang != "ko" else data['text'],
+                'text_es': translate_with_gap_analysis(data['text'], user_lang, gap_analysis, "es") if user_lang != "es" else data['text'],
+                'text_ur': translate_with_gap_analysis(data['text'], user_lang, gap_analysis, "ur") if user_lang != "ur" else data['text'],
+            }
         else:
             translations = translate_message(data['text'], user_lang)
 
@@ -381,55 +390,273 @@ async def get_current_user_info(current_user: str = Depends(get_current_user)):
             detail=f"Failed to get user info: {str(e)}"
         )
 
-# Profile Management Endpoints
-@app.post("/profiles/create", response_model=ProfileResponse)
-async def create_profile(profile_data: ProfileCreate, current_user: str = Depends(get_current_user)):
-    """Create a new translation profile."""
+
+# CTI Gap Analysis Endpoints
+@app.post("/analysis/identity-gap", response_model=GapAnalysisResult)
+async def analyze_gap(
+    request: GapAnalysisRequest,
+    current_user: str = Depends(get_current_user)
+):
+    """
+    Analyze the identity gap between machine translation and user-edited version.
+
+    Uses CTI's Personal-Enacted Identity Gap concept to identify where MT fails
+    to represent the user's authentic self.
+    """
     try:
+        # Perform CTI gap analysis
+        analysis_result = analyze_identity_gap(
+            mt_version=request.mt_version,
+            edited_version=request.edited_version
+        )
+
+        # Optionally save to database for future profile building
         db = get_db()
-        profiles_collection = db.translation_profiles
+        gap_analyses_collection = db.gap_analyses
 
-        # Validate sample texts
-        if len(profile_data.sample_texts) < 3:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="At least 3 sample texts are required"
-            )
-
-        if len(profile_data.sample_texts) > 5:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Maximum 5 sample texts allowed"
-            )
-
-        # Check if profile name already exists for this user
-        existing = profiles_collection.find_one({
+        analysis_doc = {
             "username": current_user,
-            "profile_name": profile_data.profile_name
-        })
-        if existing:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Profile name already exists"
-            )
-
-        # Create profile document
-        profile_doc = {
-            "username": current_user,
-            "profile_name": profile_data.profile_name,
-            "sample_texts": profile_data.sample_texts,
-            "target_language": profile_data.target_language,
-            "created_at": datetime.utcnow(),
-            "is_active": False
+            "mt_version": request.mt_version,
+            "edited_version": request.edited_version,
+            "analysis_result": analysis_result,
+            "created_at": datetime.utcnow()
         }
 
-        profiles_collection.insert_one(profile_doc)
+        gap_analyses_collection.insert_one(analysis_doc)
 
-        return ProfileResponse(
-            profile_name=profile_doc["profile_name"],
-            sample_texts=profile_doc["sample_texts"],
-            target_language=profile_doc["target_language"],
-            created_at=profile_doc["created_at"],
+        return GapAnalysisResult(**analysis_result)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to analyze identity gap: {str(e)}"
+        )
+
+
+@app.post("/translation/with-analysis", response_model=TranslateWithAnalysisResponse)
+async def translate_with_identity(
+    request: TranslateWithAnalysisRequest,
+    current_user: str = Depends(get_current_user)
+):
+    """
+    Translate text while preserving identity markers from gap analysis.
+
+    Uses the restored markers and identity information from a previous gap analysis
+    to produce translations that sound more like the user.
+    """
+    try:
+        # Default target language to English if not specified in gap_analysis
+        target_lang = request.gap_analysis.get("target_language", "en")
+
+        translated_text = translate_with_gap_analysis(
+            text=request.text,
+            source_lang=request.source_lang,
+            gap_analysis=request.gap_analysis,
+            target_language=target_lang
+        )
+
+        return TranslateWithAnalysisResponse(
+            translated_text=translated_text,
+            target_language=target_lang,
+            identity_preserved=True
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to translate with identity preservation: {str(e)}"
+        )
+
+
+@app.get("/analysis/history")
+async def get_analysis_history(
+    current_user: str = Depends(get_current_user),
+    limit: int = 10
+):
+    """
+    Get the user's gap analysis history.
+
+    Returns past analyses that can be used for profile building or review.
+    """
+    try:
+        db = get_db()
+        gap_analyses_collection = db.gap_analyses
+
+        analyses = list(
+            gap_analyses_collection.find({"username": current_user})
+            .sort("created_at", -1)
+            .limit(limit)
+        )
+
+        # Convert ObjectId to string for JSON serialization
+        result = []
+        for analysis in analyses:
+            analysis["_id"] = str(analysis["_id"])
+            analysis["created_at"] = analysis["created_at"].isoformat()
+            result.append(analysis)
+
+        return result
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to retrieve analysis history: {str(e)}"
+        )
+
+
+# Personal Profile Endpoints
+@app.get("/profile/personal", response_model=PersonalProfileResponse)
+async def get_personal_profile(current_user: str = Depends(get_current_user)):
+    """
+    Get the user's personal profile built from gap analyses.
+
+    Aggregates identity markers from all past gap analyses to build
+    a comprehensive communication identity profile.
+    """
+    try:
+        db = get_db()
+        profiles_collection = db.personal_profiles
+
+        # Check if profile already exists
+        profile = profiles_collection.find_one({"username": current_user})
+
+        if profile:
+            return PersonalProfileResponse(
+                common_inauthenticity_fixes=profile.get("common_inauthenticity_fixes", []),
+                inauthenticity_scale_items=profile.get("inauthenticity_scale_items", {}),
+                common_authenticity_patterns=profile.get("common_authenticity_patterns", []),
+                authenticity_scale_items=profile.get("authenticity_scale_items", {}),
+                identity_summary=profile.get("identity_summary", ""),
+                analysis_count=profile.get("analysis_count", 0),
+                last_updated=profile.get("last_updated"),
+                is_active=profile.get("is_active", True)
+            )
+
+        # Return empty profile if none exists
+        return PersonalProfileResponse()
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get personal profile: {str(e)}"
+        )
+
+
+@app.post("/profile/build", response_model=PersonalProfileResponse)
+async def build_personal_profile(current_user: str = Depends(get_current_user)):
+    """
+    Build or update personal profile from all gap analyses.
+
+    Aggregates patterns from all past gap analyses to create a comprehensive
+    communication identity profile.
+    """
+    try:
+        db = get_db()
+        gap_analyses_collection = db.gap_analyses
+        profiles_collection = db.personal_profiles
+
+        # Get all gap analyses for the user
+        analyses = list(gap_analyses_collection.find({"username": current_user}))
+
+        if not analyses:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No gap analyses found. Please analyze some translations first."
+            )
+
+        # Aggregate patterns from all analyses using CTI two-factor structure
+        from collections import Counter
+
+        all_inauthenticity_fixes = []
+        all_authenticity_patterns = []
+        inauthenticity_item_counts = {}  # Count per scale item (4,5,6,7,8,9,10)
+        authenticity_item_counts = {}  # Count per scale item (1,2,3,11)
+        summaries = []
+
+        for analysis in analyses:
+            result = analysis.get("analysis_result", {})
+
+            # Collect Factor 1: Inauthenticity fixes
+            for issue in result.get("factor1_inauthenticity", []):
+                if isinstance(issue, dict):
+                    user_fix = issue.get("user_fix", "")
+                    if user_fix:
+                        all_inauthenticity_fixes.append(user_fix)
+                    # Count scale items
+                    scale_item = issue.get("scale_item", "")
+                    if scale_item:
+                        inauthenticity_item_counts[scale_item] = inauthenticity_item_counts.get(scale_item, 0) + 1
+
+            # Collect Factor 2: Authenticity restorations
+            for restoration in result.get("factor2_authenticity", []):
+                if isinstance(restoration, dict):
+                    user_restoration = restoration.get("user_restoration", "")
+                    if user_restoration:
+                        all_authenticity_patterns.append(user_restoration)
+                    # Count scale items
+                    scale_item = restoration.get("scale_item", "")
+                    if scale_item:
+                        authenticity_item_counts[scale_item] = authenticity_item_counts.get(scale_item, 0) + 1
+
+            # Collect summaries
+            if result.get("summary"):
+                summaries.append(result["summary"])
+
+        # Get most frequent patterns
+        inauthenticity_counter = Counter(all_inauthenticity_fixes)
+        top_inauthenticity_fixes = [item for item, _ in inauthenticity_counter.most_common(10)]
+
+        authenticity_counter = Counter(all_authenticity_patterns)
+        top_authenticity_patterns = [item for item, _ in authenticity_counter.most_common(10)]
+
+        # Create aggregate summary based on CTI factors
+        identity_summary = f"Based on {len(analyses)} analyses using CTI Personal-Enacted Identity Gap Scale: "
+
+        # Summarize Factor 1 patterns
+        if inauthenticity_item_counts:
+            most_common_issue = max(inauthenticity_item_counts, key=inauthenticity_item_counts.get)
+            identity_summary += f"Most common inauthenticity issue is scale item {most_common_issue}. "
+
+        # Summarize Factor 2 patterns
+        if authenticity_item_counts:
+            most_common_auth = max(authenticity_item_counts, key=authenticity_item_counts.get)
+            identity_summary += f"Most common authenticity restoration is scale item {most_common_auth}. "
+
+        if top_authenticity_patterns:
+            identity_summary += f"User frequently restores: {', '.join(top_authenticity_patterns[:3])}."
+
+        # Build profile document
+        profile_doc = {
+            "username": current_user,
+            "common_inauthenticity_fixes": top_inauthenticity_fixes,
+            "inauthenticity_scale_items": inauthenticity_item_counts,
+            "common_authenticity_patterns": top_authenticity_patterns,
+            "authenticity_scale_items": authenticity_item_counts,
+            "identity_summary": identity_summary.strip(),
+            "analysis_count": len(analyses),
+            "last_updated": datetime.utcnow(),
+            "is_active": True
+        }
+
+        # Upsert the profile
+        profiles_collection.update_one(
+            {"username": current_user},
+            {"$set": profile_doc},
+            upsert=True
+        )
+
+        return PersonalProfileResponse(
+            common_inauthenticity_fixes=profile_doc["common_inauthenticity_fixes"],
+            inauthenticity_scale_items=profile_doc["inauthenticity_scale_items"],
+            common_authenticity_patterns=profile_doc["common_authenticity_patterns"],
+            authenticity_scale_items=profile_doc["authenticity_scale_items"],
+            identity_summary=profile_doc["identity_summary"],
+            analysis_count=profile_doc["analysis_count"],
+            last_updated=profile_doc["last_updated"],
             is_active=profile_doc["is_active"]
         )
 
@@ -438,231 +665,37 @@ async def create_profile(profile_data: ProfileCreate, current_user: str = Depend
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to create profile: {str(e)}"
+            detail=f"Failed to build personal profile: {str(e)}"
         )
 
-@app.get("/profiles/list")
-async def list_profiles(current_user: str = Depends(get_current_user)):
-    """List all profiles for the current user."""
+
+@app.put("/profile/toggle-active")
+async def toggle_profile_active(current_user: str = Depends(get_current_user)):
+    """Toggle the personal profile active state."""
     try:
         db = get_db()
-        profiles_collection = db.translation_profiles
+        profiles_collection = db.personal_profiles
 
-        profiles = list(profiles_collection.find({"username": current_user}))
-
-        return [
-            ProfileResponse(
-                profile_name=p["profile_name"],
-                sample_texts=p["sample_texts"],
-                target_language=p["target_language"],
-                created_at=p["created_at"],
-                is_active=p.get("is_active", False)
-            )
-            for p in profiles
-        ]
-
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to list profiles: {str(e)}"
-        )
-
-@app.get("/profiles/{profile_name}", response_model=ProfileResponse)
-async def get_profile(profile_name: str, current_user: str = Depends(get_current_user)):
-    """Get a specific profile."""
-    try:
-        db = get_db()
-        profiles_collection = db.translation_profiles
-
-        profile = profiles_collection.find_one({
-            "username": current_user,
-            "profile_name": profile_name
-        })
-
+        profile = profiles_collection.find_one({"username": current_user})
         if not profile:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Profile not found"
+                detail="No personal profile found"
             )
 
-        return ProfileResponse(
-            profile_name=profile["profile_name"],
-            sample_texts=profile["sample_texts"],
-            target_language=profile["target_language"],
-            created_at=profile["created_at"],
-            is_active=profile.get("is_active", False)
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to get profile: {str(e)}"
-        )
-
-@app.put("/profiles/{profile_name}", response_model=ProfileResponse)
-async def update_profile(profile_name: str, profile_data: ProfileCreate, current_user: str = Depends(get_current_user)):
-    """Update an existing profile."""
-    try:
-        db = get_db()
-        profiles_collection = db.translation_profiles
-
-        # Validate sample texts
-        if len(profile_data.sample_texts) < 3:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="At least 3 sample texts are required"
-            )
-
-        if len(profile_data.sample_texts) > 5:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Maximum 5 sample texts allowed"
-            )
-
-        # Check if profile exists
-        existing_profile = profiles_collection.find_one({
-            "username": current_user,
-            "profile_name": profile_name
-        })
-
-        if not existing_profile:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Profile not found"
-            )
-
-        # If renaming, check new name doesn't conflict
-        if profile_data.profile_name != profile_name:
-            name_conflict = profiles_collection.find_one({
-                "username": current_user,
-                "profile_name": profile_data.profile_name
-            })
-            if name_conflict:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="New profile name already exists"
-                )
-
-        # Update profile
+        new_state = not profile.get("is_active", True)
         profiles_collection.update_one(
-            {"username": current_user, "profile_name": profile_name},
-            {"$set": {
-                "profile_name": profile_data.profile_name,
-                "sample_texts": profile_data.sample_texts,
-                "target_language": profile_data.target_language
-            }}
-        )
-
-        # Fetch updated profile
-        updated_profile = profiles_collection.find_one({
-            "username": current_user,
-            "profile_name": profile_data.profile_name
-        })
-
-        return ProfileResponse(
-            profile_name=updated_profile["profile_name"],
-            sample_texts=updated_profile["sample_texts"],
-            target_language=updated_profile["target_language"],
-            created_at=updated_profile["created_at"],
-            is_active=updated_profile.get("is_active", False)
-        )
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to update profile: {str(e)}"
-        )
-
-@app.delete("/profiles/{profile_name}")
-async def delete_profile(profile_name: str, current_user: str = Depends(get_current_user)):
-    """Delete a profile."""
-    try:
-        db = get_db()
-        profiles_collection = db.translation_profiles
-
-        result = profiles_collection.delete_one({
-            "username": current_user,
-            "profile_name": profile_name
-        })
-
-        if result.deleted_count == 0:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Profile not found"
-            )
-
-        return {"message": "Profile deleted successfully"}
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to delete profile: {str(e)}"
-        )
-
-@app.put("/profiles/{profile_name}/activate")
-async def activate_profile(profile_name: str, current_user: str = Depends(get_current_user)):
-    """Activate a profile (deactivates all others)."""
-    try:
-        db = get_db()
-        profiles_collection = db.translation_profiles
-
-        # Check if profile exists
-        profile = profiles_collection.find_one({
-            "username": current_user,
-            "profile_name": profile_name
-        })
-
-        if not profile:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Profile not found"
-            )
-
-        # Deactivate all profiles for this user
-        profiles_collection.update_many(
             {"username": current_user},
-            {"$set": {"is_active": False}}
+            {"$set": {"is_active": new_state}}
         )
 
-        # Activate the selected profile
-        profiles_collection.update_one(
-            {"username": current_user, "profile_name": profile_name},
-            {"$set": {"is_active": True}}
-        )
-
-        return {"message": f"Profile '{profile_name}' activated successfully"}
+        return {"is_active": new_state, "message": f"Profile {'activated' if new_state else 'deactivated'}"}
 
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to activate profile: {str(e)}"
-        )
-
-@app.put("/profiles/deactivate-all")
-async def deactivate_all_profiles(current_user: str = Depends(get_current_user)):
-    """Deactivate all profiles for the current user."""
-    try:
-        db = get_db()
-        profiles_collection = db.translation_profiles
-
-        profiles_collection.update_many(
-            {"username": current_user},
-            {"$set": {"is_active": False}}
-        )
-
-        return {"message": "All profiles deactivated"}
-
-    except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to deactivate profiles: {str(e)}"
+            detail=f"Failed to toggle profile: {str(e)}"
         )
 

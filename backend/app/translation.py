@@ -40,44 +40,72 @@ def translate_message(text: str, source_lang: str = "en") -> Dict[str, str]:
         "text_ur": data.get("text_ur", text),
     }
 
-def translate_with_profile(text: str, source_lang: str, sample_texts: list[str], target_language: str) -> Dict[str, str]:
+
+def translate_with_gap_analysis(
+    text: str, source_lang: str, gap_analysis: dict, target_language: str = "en"
+) -> str:
     """
-    Translate message using personalized style from sample texts.
-    Uses few-shot prompting to apply user's writing style to the target language.
+    Translate text while preserving identity markers identified from CTI gap analysis.
+    Uses the two-factor structure from Jung & Hecht (2004).
+
+    Args:
+        text: Text to translate
+        source_lang: Source language code (e.g., 'ko')
+        gap_analysis: Gap analysis result with CTI two-factor patterns
+        target_language: Target language for translation (default: 'en')
+
+    Returns:
+        str: Translated text that preserves user's identity markers
     """
     client = _get_client()
 
-    # Build few-shot examples from sample texts
-    sample_examples = "\n".join([f"- {sample}" for sample in sample_texts[:5]])  # Limit to 5 samples
+    # Extract identity patterns from CTI two-factor analysis
+    inauthenticity_fixes = gap_analysis.get("common_inauthenticity_fixes", [])
+    authenticity_patterns = gap_analysis.get("common_authenticity_patterns", [])
+    summary = gap_analysis.get("identity_summary", "")
 
-    personalized_prompt = f"""You translate short chat messages.
-Return ONLY JSON with keys: text_en, text_ko, text_es, text_ur.
+    # Build identity preservation prompt based on CTI factors
+    identity_context = f"""
+User's Communication Identity Profile (based on CTI Personal-Enacted Identity Gap Scale):
 
-IMPORTANT: For the '{target_language}' translation, use the writing style shown in these examples:
-{sample_examples}
+FACTOR 1 - What the user fixes to avoid inauthenticity:
+{chr(10).join(['- ' + fix for fix in inauthenticity_fixes[:5]]) if inauthenticity_fixes else '- No patterns identified yet'}
 
-Match the tone, vocabulary, sentence structure, and expressions from the examples above when translating to {target_language}.
-For other languages, use formal tone. Keep meaning intact. Never add comments."""
+FACTOR 2 - How the user restores authentic self-expression:
+{chr(10).join(['- ' + pattern for pattern in authenticity_patterns[:5]]) if authenticity_patterns else '- No patterns identified yet'}
+
+Identity Summary: {summary}
+"""
+
+    personalized_prompt = f"""You translate messages while preserving the user's authentic communication identity.
+
+{identity_context}
+
+CRITICAL INSTRUCTIONS based on CTI Personal-Enacted Identity Gap:
+1. Avoid the inauthenticity patterns - don't make the same mistakes MT typically makes
+2. Apply the user's authentic expression patterns to make the translation sound like them
+3. Ensure the translation allows the "real me" to come through (Factor 2, item 1)
+4. Make sure the translation is consistent with who the user really is (Factor 2, item 2)
+5. Let the user "be themselves" through the translation (Factor 2, item 3)
+6. Allow free expression of the real self (Factor 2, item 11)
+
+Return ONLY the translated text in {target_language}. No JSON, no explanation, just the translation."""
 
     try:
         completion = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": personalized_prompt},
-                {"role": "user", "content": f"Source language: {source_lang}\nText: {text}"},
+                {
+                    "role": "user",
+                    "content": f"Translate this from {source_lang} to {target_language}:\n{text}",
+                },
             ],
-            response_format={"type": "json_object"},
-            temperature=0.3,  # Slightly higher for more stylistic variation
+            temperature=0.3,
         )
-        raw = completion.choices[0].message.content
-        data = json.loads(raw) if isinstance(raw, str) else raw
-    except Exception:
-        # Fallback to standard translation if personalized fails
-        return translate_message(text, source_lang)
-
-    return {
-        "text_en": data.get("text_en", text),
-        "text_ko": data.get("text_ko", text),
-        "text_es": data.get("text_es", text),
-        "text_ur": data.get("text_ur", text),
-    }
+        result = completion.choices[0].message.content
+        return result.strip() if result else text
+    except Exception as e:
+        print(f"Error in identity-preserving translation: {e}")
+        # Fallback to original text if translation fails
+        return text

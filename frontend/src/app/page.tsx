@@ -28,11 +28,44 @@ interface Message {
   text_ur: string;
 }
 
-interface TranslationProfile {
-  profile_name: string;
-  sample_texts: string[];
-  target_language: 'en' | 'ko' | 'es' | 'ur';
-  created_at?: string;
+// CTI Gap Analysis Types (Based on Personal-Enacted Identity Gap Scale - Jung & Hecht 2004)
+interface Factor1Inauthenticity {
+  mt_issue: string;
+  user_fix: string;
+  scale_item: string;
+  explanation: string;
+}
+
+interface Factor2Authenticity {
+  mt_failure: string;
+  user_restoration: string;
+  scale_item: string;
+  explanation: string;
+}
+
+interface GapAnalysisResult {
+  factor1_inauthenticity: Factor1Inauthenticity[];
+  factor2_authenticity: Factor2Authenticity[];
+  summary: string;
+}
+
+interface GapAnalysisHistory {
+  _id: string;
+  username: string;
+  mt_version: string;
+  edited_version: string;
+  analysis_result: GapAnalysisResult;
+  created_at: string;
+}
+
+interface PersonalProfile {
+  common_inauthenticity_fixes: string[];
+  inauthenticity_scale_items: Record<string, number>;
+  common_authenticity_patterns: string[];
+  authenticity_scale_items: Record<string, number>;
+  identity_summary: string;
+  analysis_count: number;
+  last_updated?: string;
   is_active: boolean;
 }
 
@@ -350,106 +383,177 @@ function LoginForm({ onLogin, onBackendError }: { onLogin: (user: User, token: s
   );
 }
 
-// Profile Management Modal Component
-function ProfileModal({ token, onClose }: { token: string; onClose: () => void }) {
-  const [profiles, setProfiles] = useState<TranslationProfile[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [showCreateForm, setShowCreateForm] = useState(false);
-  const [editingProfile, setEditingProfile] = useState<TranslationProfile | null>(null);
+// CTI Gap Analysis Modal Component
+function GapAnalysisModal({ token, onClose, onAnalysisComplete }: { token: string; onClose: () => void; onAnalysisComplete?: () => void }) {
+  const [mtVersion, setMtVersion] = useState('');
+  const [editedVersion, setEditedVersion] = useState('');
+  const [analysisResult, setAnalysisResult] = useState<GapAnalysisResult | null>(null);
+  const [history, setHistory] = useState<GapAnalysisHistory[]>([]);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [error, setError] = useState('');
-  const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'analyze' | 'history'>('analyze');
 
   useEffect(() => {
-    fetchProfiles();
-  }, []);
+    if (activeTab === 'history') {
+      fetchHistory();
+    }
+  }, [activeTab]);
 
-  const fetchProfiles = async () => {
+  const fetchHistory = async () => {
     try {
-      setIsLoading(true);
-      const response = await fetch(`${API_URL}/profiles/list`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
+      setIsLoadingHistory(true);
+      const response = await fetch(`${API_URL}/analysis/history?limit=10`, {
+        headers: { 'Authorization': `Bearer ${token}` }
       });
-
-      if (!response.ok) throw new Error('Failed to fetch profiles');
+      if (!response.ok) throw new Error('Failed to fetch history');
       const data = await response.json();
-      setProfiles(data);
+      setHistory(data);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load profiles');
+      setError(err instanceof Error ? err.message : 'Failed to load history');
     } finally {
-      setIsLoading(false);
+      setIsLoadingHistory(false);
     }
   };
 
-  const handleActivate = async (profileName: string) => {
-    try {
-      setActionLoading(`activate-${profileName}`);
-      const response = await fetch(`${API_URL}/profiles/${profileName}/activate`, {
-        method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-
-      if (!response.ok) throw new Error('Failed to activate profile');
-      await fetchProfiles();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to activate profile');
-    } finally {
-      setActionLoading(null);
+  const handleAnalyze = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!mtVersion.trim() || !editedVersion.trim()) {
+      setError('Please fill in all fields');
+      return;
     }
-  };
 
-  const handleDeactivateAll = async () => {
-    try {
-      setActionLoading('deactivate-all');
-      const response = await fetch(`${API_URL}/profiles/deactivate-all`, {
-        method: 'PUT',
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
-      });
-
-      if (!response.ok) throw new Error('Failed to deactivate profiles');
-      await fetchProfiles();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to deactivate profiles');
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
-  const handleDelete = async (profileName: string) => {
-    if (!confirm(`Delete profile "${profileName}"?`)) return;
+    setIsAnalyzing(true);
+    setError('');
+    setAnalysisResult(null);
 
     try {
-      setActionLoading(`delete-${profileName}`);
-      const response = await fetch(`${API_URL}/profiles/${profileName}`, {
-        method: 'DELETE',
+      const response = await fetch(`${API_URL}/analysis/identity-gap`, {
+        method: 'POST',
         headers: {
+          'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
-        }
+        },
+        body: JSON.stringify({
+          mt_version: mtVersion.trim(),
+          edited_version: editedVersion.trim()
+        })
       });
 
-      if (!response.ok) throw new Error('Failed to delete profile');
-      await fetchProfiles();
+      if (!response.ok) {
+        const data = await response.json();
+        throw new Error(data.detail || 'Analysis failed');
+      }
+
+      const result = await response.json();
+      setAnalysisResult(result);
+
+      // Notify parent to rebuild profile after successful analysis
+      if (onAnalysisComplete) {
+        onAnalysisComplete();
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete profile');
+      setError(err instanceof Error ? err.message : 'Failed to analyze');
     } finally {
-      setActionLoading(null);
+      setIsAnalyzing(false);
     }
   };
+
+  const renderAnalysisResult = (result: GapAnalysisResult) => (
+    <div className="space-y-6">
+      {/* Summary */}
+      <div className="bg-gradient-to-r from-purple-50 to-indigo-50 p-4 rounded-lg border border-purple-200">
+        <h4 className="font-semibold text-purple-900 mb-2">Identity Gap Summary</h4>
+        <p className="text-purple-800">{result.summary}</p>
+      </div>
+
+      {/* Factor 1: Inauthenticity - Where MT causes inauthentic expression */}
+      {result.factor1_inauthenticity.length > 0 && (
+        <div className="bg-red-50 p-4 rounded-lg border border-red-200">
+          <h4 className="font-semibold text-red-900 mb-3">Factor 1: Inauthenticity Corrections</h4>
+          <p className="text-xs text-red-700 mb-3">Where MT caused you to appear inauthentic (Scale items 4,5,6,7,8,9,10)</p>
+          <div className="space-y-3">
+            {result.factor1_inauthenticity.map((issue, i) => (
+              <div key={i} className="bg-white p-3 rounded border border-red-100">
+                <div className="flex justify-between items-start mb-2">
+                  <span className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded font-medium">
+                    Scale Item {issue.scale_item}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 mb-2">
+                  <div>
+                    <p className="text-xs font-medium text-red-600">MT Issue:</p>
+                    <p className="text-sm text-gray-700 line-through">{issue.mt_issue}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-green-600">Your Fix:</p>
+                    <p className="text-sm text-gray-900 font-medium">{issue.user_fix}</p>
+                  </div>
+                </div>
+                <p className="text-xs text-red-700 italic">{issue.explanation}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Factor 2: Authenticity - Where user restores authentic expression */}
+      {result.factor2_authenticity.length > 0 && (
+        <div className="bg-green-50 p-4 rounded-lg border border-green-200">
+          <h4 className="font-semibold text-green-900 mb-3">Factor 2: Authenticity Restorations</h4>
+          <p className="text-xs text-green-700 mb-3">How you restored authentic self-expression (Scale items 1,2,3,11)</p>
+          <div className="space-y-3">
+            {result.factor2_authenticity.map((restoration, i) => (
+              <div key={i} className="bg-white p-3 rounded border border-green-100">
+                <div className="flex justify-between items-start mb-2">
+                  <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded font-medium">
+                    Scale Item {restoration.scale_item}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 mb-2">
+                  <div>
+                    <p className="text-xs font-medium text-red-600">MT Failure:</p>
+                    <p className="text-sm text-gray-700">{restoration.mt_failure}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs font-medium text-green-600">Your Restoration:</p>
+                    <p className="text-sm text-gray-900 font-medium">{restoration.user_restoration}</p>
+                  </div>
+                </div>
+                <p className="text-xs text-green-700 italic">{restoration.explanation}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={onClose}>
-      <div className="bg-white rounded-2xl p-8 max-w-2xl w-full mx-4 max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-white rounded-2xl p-6 max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <div className="flex justify-between items-center mb-6">
-          <h2 className="text-2xl font-bold text-gray-900">Translation Profiles</h2>
+          <h2 className="text-2xl font-bold text-gray-900">CTI Identity Gap Analysis</h2>
           <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
               <path d="M18 6L6 18M6 6l12 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
             </svg>
+          </button>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex space-x-4 mb-6 border-b">
+          <button
+            onClick={() => setActiveTab('analyze')}
+            className={`pb-2 px-4 font-medium ${activeTab === 'analyze' ? 'border-b-2 border-purple-500 text-purple-600' : 'text-gray-500 hover:text-gray-700'}`}
+          >
+            Analyze New
+          </button>
+          <button
+            onClick={() => setActiveTab('history')}
+            className={`pb-2 px-4 font-medium ${activeTab === 'history' ? 'border-b-2 border-purple-500 text-purple-600' : 'text-gray-500 hover:text-gray-700'}`}
+          >
+            History
           </button>
         </div>
 
@@ -459,438 +563,119 @@ function ProfileModal({ token, onClose }: { token: string; onClose: () => void }
           </div>
         )}
 
-        {!showCreateForm && !editingProfile ? (
-          <>
-            <button
-              onClick={() => setShowCreateForm(true)}
-              className="w-full mb-4 bg-gradient-to-r from-purple-500 to-purple-600 text-white font-semibold py-3 px-4 rounded-lg hover:from-purple-600 hover:to-purple-700 focus:outline-none"
-            >
-              + Create New Profile
-            </button>
+        {activeTab === 'analyze' ? (
+          <div>
+            {!analysisResult ? (
+              <form onSubmit={handleAnalyze} className="space-y-4">
+                <div className="bg-purple-50 p-4 rounded-lg mb-4">
+                  <p className="text-sm text-purple-800">
+                    <strong>How it works:</strong> Enter the machine translation and your edited version.
+                    We'll analyze what identity markers you restored to understand your authentic communication style.
+                  </p>
+                </div>
 
-            {profiles.length > 0 && (
-              <button
-                onClick={handleDeactivateAll}
-                disabled={actionLoading === 'deactivate-all'}
-                className="w-full mb-4 bg-gray-200 text-gray-700 font-semibold py-2 px-4 rounded-lg hover:bg-gray-300 active:bg-gray-400 focus:outline-none text-sm disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-150"
-              >
-                {actionLoading === 'deactivate-all' ? (
-                  <span className="flex items-center justify-center">
-                    <div className="w-4 h-4 border-2 border-gray-700 border-t-transparent rounded-full animate-spin mr-2"></div>
-                    Deactivating...
-                  </span>
-                ) : (
-                  'Deactivate All'
-                )}
-              </button>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Machine Translation Result
+                  </label>
+                  <textarea
+                    value={mtVersion}
+                    onChange={(e) => setMtVersion(e.target.value)}
+                    placeholder="e.g., Can I ask about internship opportunities if possible?"
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 text-gray-700"
+                    rows={3}
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Your Edited Version (How you would actually say it)
+                  </label>
+                  <textarea
+                    value={editedVersion}
+                    onChange={(e) => setEditedVersion(e.target.value)}
+                    placeholder="e.g., I was wondering if I might inquire about potential internship opportunities?"
+                    className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 text-gray-700"
+                    rows={3}
+                    required
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isAnalyzing}
+                  className="w-full bg-gradient-to-r from-purple-500 to-indigo-600 text-white font-semibold py-3 px-4 rounded-lg hover:from-purple-600 hover:to-indigo-700 disabled:opacity-50"
+                >
+                  {isAnalyzing ? (
+                    <span className="flex items-center justify-center">
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
+                      Analyzing Identity Gaps...
+                    </span>
+                  ) : (
+                    'Analyze My Communication Identity'
+                  )}
+                </button>
+              </form>
+            ) : (
+              <div>
+                <button
+                  onClick={() => {
+                    setAnalysisResult(null);
+                    setMtVersion('');
+                    setEditedVersion('');
+                  }}
+                  className="mb-4 text-purple-600 hover:text-purple-700 font-medium"
+                >
+                  ← Analyze Another
+                </button>
+                {renderAnalysisResult(analysisResult)}
+              </div>
             )}
-
-            {isLoading ? (
+          </div>
+        ) : (
+          <div>
+            {isLoadingHistory ? (
               <div className="text-center py-8">
                 <div className="w-8 h-8 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto"></div>
               </div>
-            ) : profiles.length === 0 ? (
-              <p className="text-center text-gray-500 py-8">No profiles yet. Create one to personalize translations!</p>
+            ) : history.length === 0 ? (
+              <p className="text-center text-gray-500 py-8">No analysis history yet. Start by analyzing your first translation!</p>
             ) : (
-              <div className="space-y-3">
-                {profiles.map((profile) => (
-                  <div key={profile.profile_name} className={`p-4 rounded-lg border-2 ${profile.is_active ? 'border-purple-500 bg-purple-50' : 'border-gray-200 bg-gray-50'}`}>
-                    <div className="flex justify-between items-start mb-2">
-                      <div className="flex-1">
-                        <h3 className="font-semibold text-gray-900">{profile.profile_name}</h3>
-                        <p className="text-sm text-gray-600">Target: {LANGUAGES[profile.target_language]}</p>
-                        <p className="text-xs text-gray-500">{profile.sample_texts.length} sample texts</p>
+              <div className="space-y-6">
+                {history.map((item) => (
+                  <div key={item._id} className="border border-gray-200 rounded-lg p-4">
+                    <div className="flex justify-between items-start mb-3">
+                      <div className="text-xs text-gray-500">
+                        {new Date(item.created_at).toLocaleDateString()} at {new Date(item.created_at).toLocaleTimeString()}
                       </div>
-                      {profile.is_active && (
-                        <span className="bg-purple-500 text-white text-xs px-2 py-1 rounded-full">Active</span>
-                      )}
                     </div>
-                    <div className="flex space-x-2 mt-3">
-                      {!profile.is_active && (
-                        <button
-                          onClick={() => handleActivate(profile.profile_name)}
-                          disabled={actionLoading === `activate-${profile.profile_name}`}
-                          className="flex-1 bg-purple-500 text-white py-2 px-3 rounded text-sm hover:bg-purple-600 active:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-150"
-                        >
-                          {actionLoading === `activate-${profile.profile_name}` ? (
-                            <span className="flex items-center justify-center">
-                              <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin mr-1"></div>
-                              <span className="text-xs">Activating...</span>
-                            </span>
-                          ) : (
-                            'Activate'
-                          )}
-                        </button>
-                      )}
-                      <button
-                        onClick={() => setEditingProfile(profile)}
-                        disabled={!!actionLoading}
-                        className="flex-1 bg-blue-500 text-white py-2 px-3 rounded text-sm hover:bg-blue-600 active:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-150"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => handleDelete(profile.profile_name)}
-                        disabled={actionLoading === `delete-${profile.profile_name}`}
-                        className="flex-1 bg-red-500 text-white py-2 px-3 rounded text-sm hover:bg-red-600 active:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-150"
-                      >
-                        {actionLoading === `delete-${profile.profile_name}` ? (
-                          <span className="flex items-center justify-center">
-                            <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin mr-1"></div>
-                            <span className="text-xs">Deleting...</span>
-                          </span>
-                        ) : (
-                          'Delete'
-                        )}
-                      </button>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4 text-sm">
+                      <div className="bg-gray-50 p-2 rounded">
+                        <p className="font-medium text-gray-600 mb-1">MT Version:</p>
+                        <p className="text-gray-800">{item.mt_version}</p>
+                      </div>
+                      <div className="bg-gray-50 p-2 rounded">
+                        <p className="font-medium text-gray-600 mb-1">Your Edit:</p>
+                        <p className="text-gray-800">{item.edited_version}</p>
+                      </div>
                     </div>
+                    <details className="group">
+                      <summary className="cursor-pointer text-purple-600 hover:text-purple-700 font-medium text-sm">
+                        View Analysis Results
+                      </summary>
+                      <div className="mt-3">
+                        {renderAnalysisResult(item.analysis_result)}
+                      </div>
+                    </details>
                   </div>
                 ))}
               </div>
             )}
-          </>
-        ) : showCreateForm ? (
-          <ProfileCreateForm
-            token={token}
-            onSuccess={() => {
-              setShowCreateForm(false);
-              fetchProfiles();
-            }}
-            onCancel={() => setShowCreateForm(false)}
-          />
-        ) : editingProfile ? (
-          <ProfileEditForm
-            token={token}
-            profile={editingProfile}
-            onSuccess={() => {
-              setEditingProfile(null);
-              fetchProfiles();
-            }}
-            onCancel={() => setEditingProfile(null)}
-          />
-        ) : null}
+          </div>
+        )}
       </div>
     </div>
-  );
-}
-
-// Profile Create Form Component
-function ProfileCreateForm({ token, onSuccess, onCancel }: { token: string; onSuccess: () => void; onCancel: () => void }) {
-  const [profileName, setProfileName] = useState('');
-  const [targetLanguage, setTargetLanguage] = useState<keyof typeof LANGUAGES>('en');
-  const [sampleTexts, setSampleTexts] = useState(['', '', '']);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState('');
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    const validTexts = sampleTexts.filter(t => t.trim().length > 0);
-
-    if (validTexts.length < 3) {
-      setError('Please provide at least 3 sample texts');
-      return;
-    }
-
-    if (validTexts.some(t => t.length < 50)) {
-      setError('Each sample text should be at least 50 characters');
-      return;
-    }
-
-    setIsLoading(true);
-    setError('');
-
-    try {
-      const response = await fetch(`${API_URL}/profiles/create`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          profile_name: profileName.trim(),
-          sample_texts: validTexts,
-          target_language: targetLanguage
-        })
-      });
-
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.detail || 'Failed to create profile');
-      }
-
-      onSuccess();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create profile');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const addSampleText = () => {
-    if (sampleTexts.length < 5) {
-      setSampleTexts([...sampleTexts, '']);
-    }
-  };
-
-  const removeSampleText = (index: number) => {
-    if (sampleTexts.length > 3) {
-      setSampleTexts(sampleTexts.filter((_, i) => i !== index));
-    }
-  };
-
-  return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">Profile Name</label>
-        <input
-          type="text"
-          required
-          value={profileName}
-          onChange={(e) => setProfileName(e.target.value)}
-          placeholder="e.g., Casual, Formal, Friendly"
-          className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 text-gray-700"
-        />
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">Target Language (to personalize)</label>
-        <select
-          value={targetLanguage}
-          onChange={(e) => setTargetLanguage(e.target.value as keyof typeof LANGUAGES)}
-          className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 text-gray-700"
-        >
-          {Object.entries(LANGUAGES).map(([code, name]) => (
-            <option key={code} value={code}>{name}</option>
-          ))}
-        </select>
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Sample Texts (3-5 examples of your writing style, min 50 chars each)
-        </label>
-        {sampleTexts.map((text, index) => (
-          <div key={index} className="mb-2 relative">
-            <textarea
-              required={index < 3}
-              value={text}
-              onChange={(e) => {
-                const newTexts = [...sampleTexts];
-                newTexts[index] = e.target.value;
-                setSampleTexts(newTexts);
-              }}
-              placeholder={`Sample ${index + 1}${index < 3 ? ' (required)' : ' (optional)'}`}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 text-gray-700"
-              rows={3}
-            />
-            {index >= 3 && (
-              <button
-                type="button"
-                onClick={() => removeSampleText(index)}
-                className="absolute top-2 right-2 text-red-500 hover:text-red-700"
-              >
-                Remove
-              </button>
-            )}
-          </div>
-        ))}
-        {sampleTexts.length < 5 && (
-          <button
-            type="button"
-            onClick={addSampleText}
-            className="text-purple-600 text-sm hover:text-purple-700"
-          >
-            + Add another sample
-          </button>
-        )}
-      </div>
-
-      {error && (
-        <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-          {error}
-        </div>
-      )}
-
-      <div className="flex space-x-3">
-        <button
-          type="button"
-          onClick={onCancel}
-          className="flex-1 bg-gray-200 text-gray-700 py-3 px-4 rounded-lg hover:bg-gray-300"
-        >
-          Cancel
-        </button>
-        <button
-          type="submit"
-          disabled={isLoading}
-          className="flex-1 bg-gradient-to-r from-purple-500 to-purple-600 text-white py-3 px-4 rounded-lg hover:from-purple-600 hover:to-purple-700 disabled:opacity-50"
-        >
-          {isLoading ? 'Creating...' : 'Create Profile'}
-        </button>
-      </div>
-    </form>
-  );
-}
-
-// Profile Edit Form Component
-function ProfileEditForm({ token, profile, onSuccess, onCancel }: { token: string; profile: TranslationProfile; onSuccess: () => void; onCancel: () => void }) {
-  const [profileName, setProfileName] = useState(profile.profile_name);
-  const [targetLanguage, setTargetLanguage] = useState<keyof typeof LANGUAGES>(profile.target_language);
-  const [sampleTexts, setSampleTexts] = useState<string[]>([...profile.sample_texts]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState('');
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-
-    const validTexts = sampleTexts.filter(t => t.trim().length > 0);
-
-    if (validTexts.length < 3) {
-      setError('Please provide at least 3 sample texts');
-      return;
-    }
-
-    if (validTexts.some(t => t.length < 50)) {
-      setError('Each sample text should be at least 50 characters');
-      return;
-    }
-
-    setIsLoading(true);
-    setError('');
-
-    try {
-      const response = await fetch(`${API_URL}/profiles/${profile.profile_name}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({
-          profile_name: profileName.trim(),
-          sample_texts: validTexts,
-          target_language: targetLanguage
-        })
-      });
-
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.detail || 'Failed to update profile');
-      }
-
-      onSuccess();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update profile');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  const addSampleText = () => {
-    if (sampleTexts.length < 5) {
-      setSampleTexts([...sampleTexts, '']);
-    }
-  };
-
-  const removeSampleText = (index: number) => {
-    if (sampleTexts.length > 3) {
-      setSampleTexts(sampleTexts.filter((_, i) => i !== index));
-    }
-  };
-
-  return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
-        <p className="text-blue-800 text-sm font-medium">Editing: {profile.profile_name}</p>
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">Profile Name</label>
-        <input
-          type="text"
-          required
-          value={profileName}
-          onChange={(e) => setProfileName(e.target.value)}
-          placeholder="e.g., Casual, Formal, Friendly"
-          className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 text-gray-700"
-        />
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">Target Language (to personalize)</label>
-        <select
-          value={targetLanguage}
-          onChange={(e) => setTargetLanguage(e.target.value as keyof typeof LANGUAGES)}
-          className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 text-gray-700"
-        >
-          {Object.entries(LANGUAGES).map(([code, name]) => (
-            <option key={code} value={code}>{name}</option>
-          ))}
-        </select>
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Sample Texts (3-5 examples of your writing style, min 50 chars each)
-        </label>
-        {sampleTexts.map((text, index) => (
-          <div key={index} className="mb-2 relative">
-            <textarea
-              required={index < 3}
-              value={text}
-              onChange={(e) => {
-                const newTexts = [...sampleTexts];
-                newTexts[index] = e.target.value;
-                setSampleTexts(newTexts);
-              }}
-              placeholder={`Sample ${index + 1}${index < 3 ? ' (required)' : ' (optional)'}`}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 text-gray-700"
-              rows={3}
-            />
-            {index >= 3 && (
-              <button
-                type="button"
-                onClick={() => removeSampleText(index)}
-                className="absolute top-2 right-2 text-red-500 hover:text-red-700"
-              >
-                Remove
-              </button>
-            )}
-          </div>
-        ))}
-        {sampleTexts.length < 5 && (
-          <button
-            type="button"
-            onClick={addSampleText}
-            className="text-purple-600 text-sm hover:text-purple-700"
-          >
-            + Add another sample
-          </button>
-        )}
-      </div>
-
-      {error && (
-        <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
-          {error}
-        </div>
-      )}
-
-      <div className="flex space-x-3">
-        <button
-          type="button"
-          onClick={onCancel}
-          className="flex-1 bg-gray-200 text-gray-700 py-3 px-4 rounded-lg hover:bg-gray-300"
-        >
-          Cancel
-        </button>
-        <button
-          type="submit"
-          disabled={isLoading}
-          className="flex-1 bg-gradient-to-r from-blue-500 to-blue-600 text-white py-3 px-4 rounded-lg hover:from-blue-600 hover:to-blue-700 disabled:opacity-50"
-        >
-          {isLoading ? 'Updating...' : 'Update Profile'}
-        </button>
-      </div>
-    </form>
   );
 }
 
@@ -903,28 +688,72 @@ function ChatInterface({ user, token, onLogout, onBackendError }: { user: User; 
   const [isConnected, setIsConnected] = useState(false);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [connectionError, setConnectionError] = useState(false);
-  const [showProfileModal, setShowProfileModal] = useState(false);
-  const [activeProfile, setActiveProfile] = useState<TranslationProfile | null>(null);
+  const [showGapAnalysisModal, setShowGapAnalysisModal] = useState(false);
+  const [personalProfile, setPersonalProfile] = useState<PersonalProfile | null>(null);
+  const [isLoadingProfile, setIsLoadingProfile] = useState(false);
+  const [isBuildingProfile, setIsBuildingProfile] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Fetch active profile on mount
+  // Fetch personal profile on mount
   useEffect(() => {
-    const fetchActiveProfile = async () => {
+    const fetchPersonalProfile = async () => {
       try {
-        const response = await fetch(`${API_URL}/profiles/list`, {
+        setIsLoadingProfile(true);
+        const response = await fetch(`${API_URL}/profile/personal`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         if (response.ok) {
-          const profiles: TranslationProfile[] = await response.json();
-          const active = profiles.find(p => p.is_active);
-          setActiveProfile(active || null);
+          const profile = await response.json();
+          if (profile.analysis_count > 0) {
+            setPersonalProfile(profile);
+          }
         }
       } catch (err) {
-        console.error('Failed to fetch profiles:', err);
+        console.error('Failed to fetch personal profile:', err);
+      } finally {
+        setIsLoadingProfile(false);
       }
     };
-    fetchActiveProfile();
-  }, [token, API_URL]);
+    fetchPersonalProfile();
+  }, [token]);
+
+  const buildProfile = async () => {
+    try {
+      setIsBuildingProfile(true);
+      const response = await fetch(`${API_URL}/profile/build`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.ok) {
+        const profile = await response.json();
+        setPersonalProfile(profile);
+      } else {
+        const error = await response.json();
+        alert(error.detail || 'Failed to build profile');
+      }
+    } catch (err) {
+      console.error('Failed to build profile:', err);
+      alert('Failed to build profile');
+    } finally {
+      setIsBuildingProfile(false);
+    }
+  };
+
+  const toggleProfileActive = async () => {
+    if (!personalProfile) return;
+    try {
+      const response = await fetch(`${API_URL}/profile/toggle-active`, {
+        method: 'PUT',
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (response.ok) {
+        const result = await response.json();
+        setPersonalProfile({ ...personalProfile, is_active: result.is_active });
+      }
+    } catch (err) {
+      console.error('Failed to toggle profile:', err);
+    }
+  };
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -1007,23 +836,107 @@ function ChatInterface({ user, token, onLogout, onBackendError }: { user: User; 
           <div className="text-gray-700 text-lg font-medium"># general</div>
         </div>
 
-        {/* Translation Profile Section */}
+        {/* Personal Profile Section */}
         <div className="mt-auto p-6 mb-3">
-          <button
-            onClick={() => setShowProfileModal(true)}
-            className="w-full bg-white bg-opacity-30 backdrop-blur-sm hover:bg-opacity-40 rounded-lg p-3 border border-white border-opacity-20 text-gray-800 font-medium text-sm transition-all duration-200 flex items-center justify-between"
-          >
-            <span>Translation Profiles</span>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-              <path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-            </svg>
-          </button>
-          {activeProfile && (
-            <div className="mt-2 bg-green-100 bg-opacity-80 rounded-lg p-2 text-xs">
-              <div className="text-green-800 font-semibold">Active: {activeProfile.profile_name}</div>
-              <div className="text-green-700">Personalizing {LANGUAGES[activeProfile.target_language]}</div>
+          {/* Personal Profile Card */}
+          {personalProfile ? (
+            <div className={`bg-white bg-opacity-90 rounded-lg p-4 border-2 ${personalProfile.is_active ? 'border-green-400' : 'border-gray-300'} mb-3`}>
+              <div className="flex justify-between items-start mb-2">
+                <h3 className="font-bold text-gray-800 text-sm">Personal Profile</h3>
+                <button
+                  onClick={toggleProfileActive}
+                  className={`text-xs px-2 py-1 rounded-full font-medium ${
+                    personalProfile.is_active
+                      ? 'bg-green-500 text-white'
+                      : 'bg-gray-300 text-gray-600'
+                  }`}
+                >
+                  {personalProfile.is_active ? 'Active' : 'Inactive'}
+                </button>
+              </div>
+
+              <div className="space-y-2 text-xs">
+                {/* Factor 1: Common inauthenticity fixes */}
+                {personalProfile.common_inauthenticity_fixes.length > 0 && (
+                  <div>
+                    <span className="font-medium text-gray-600">Factor 1 Fixes:</span>
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {personalProfile.common_inauthenticity_fixes.slice(0, 2).map((fix, i) => (
+                        <span key={i} className="bg-red-100 text-red-700 px-1.5 py-0.5 rounded text-xs truncate max-w-full">
+                          {fix.length > 30 ? fix.substring(0, 30) + '...' : fix}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {/* Factor 2: Common authenticity patterns */}
+                {personalProfile.common_authenticity_patterns.length > 0 && (
+                  <div>
+                    <span className="font-medium text-gray-600">Factor 2 Patterns:</span>
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {personalProfile.common_authenticity_patterns.slice(0, 2).map((pattern, i) => (
+                        <span key={i} className="bg-green-100 text-green-700 px-1.5 py-0.5 rounded text-xs truncate max-w-full">
+                          {pattern.length > 30 ? pattern.substring(0, 30) + '...' : pattern}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {/* Scale item counts */}
+                {Object.keys(personalProfile.authenticity_scale_items).length > 0 && (
+                  <div>
+                    <span className="font-medium text-gray-600">Top Scale Items:</span>
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {Object.entries(personalProfile.authenticity_scale_items)
+                        .sort(([,a], [,b]) => b - a)
+                        .slice(0, 3)
+                        .map(([item, count], i) => (
+                          <span key={i} className="bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded text-xs">
+                            Item {item}: {count}x
+                          </span>
+                        ))}
+                    </div>
+                  </div>
+                )}
+                <div className="text-gray-500 mt-2 pt-2 border-t border-gray-200">
+                  Built from {personalProfile.analysis_count} {personalProfile.analysis_count === 1 ? 'analysis' : 'analyses'}
+                </div>
+              </div>
+
+              <button
+                onClick={buildProfile}
+                disabled={isBuildingProfile}
+                className="w-full mt-3 bg-purple-500 text-white py-1.5 px-3 rounded text-xs font-medium hover:bg-purple-600 disabled:opacity-50"
+              >
+                {isBuildingProfile ? 'Rebuilding...' : 'Rebuild Profile'}
+              </button>
+            </div>
+          ) : (
+            <div className="bg-white bg-opacity-80 rounded-lg p-4 border border-gray-300 mb-3">
+              <h3 className="font-bold text-gray-800 text-sm mb-2">Personal Profile</h3>
+              <p className="text-xs text-gray-600 mb-3">
+                No profile yet. Analyze your translations to build your communication identity profile.
+              </p>
+              <button
+                onClick={buildProfile}
+                disabled={isBuildingProfile || isLoadingProfile}
+                className="w-full bg-purple-500 text-white py-2 px-3 rounded text-xs font-medium hover:bg-purple-600 disabled:opacity-50"
+              >
+                {isBuildingProfile ? 'Building...' : isLoadingProfile ? 'Loading...' : 'Build Profile'}
+              </button>
             </div>
           )}
+
+          {/* CTI Gap Analysis Button */}
+          <button
+            onClick={() => setShowGapAnalysisModal(true)}
+            className="w-full bg-gradient-to-r from-indigo-500 to-purple-600 bg-opacity-80 hover:bg-opacity-90 rounded-lg p-3 border border-white border-opacity-20 text-white font-medium text-sm transition-all duration-200 flex items-center justify-between"
+          >
+            <span>Identity Gap Analysis</span>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+              <path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
         </div>
 
         {/* Language Selection */}
@@ -1210,26 +1123,12 @@ function ChatInterface({ user, token, onLogout, onBackendError }: { user: User; 
         </div>
       </div>
 
-      {/* Profile Modal */}
-      {showProfileModal && (
-        <ProfileModal
+      {/* Gap Analysis Modal */}
+      {showGapAnalysisModal && (
+        <GapAnalysisModal
           token={token}
-          onClose={async () => {
-            setShowProfileModal(false);
-            // Refresh active profile
-            try {
-              const response = await fetch(`${API_URL}/profiles/list`, {
-                headers: { 'Authorization': `Bearer ${token}` }
-              });
-              if (response.ok) {
-                const profiles: TranslationProfile[] = await response.json();
-                const active = profiles.find(p => p.is_active);
-                setActiveProfile(active || null);
-              }
-            } catch (err) {
-              console.error('Failed to refresh profiles:', err);
-            }
-          }}
+          onClose={() => setShowGapAnalysisModal(false)}
+          onAnalysisComplete={buildProfile}
         />
       )}
     </div>
