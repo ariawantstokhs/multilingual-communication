@@ -11,9 +11,9 @@ import bcrypt
 import jwt
 
 from .db import connect_to_mongo, close_mongo_connection, get_db
-from .models import Message, User, UserCreate, UserLogin, UserResponse, LabAccessRequest, GapAnalysisRequest, GapAnalysisResult, TranslateWithAnalysisRequest, TranslateWithAnalysisResponse, PersonalProfileResponse
-from .translation import translate_message, translate_with_gap_analysis
-from .analysis import analyze_identity_gap
+from .models import Message, User, UserCreate, UserLogin, UserResponse, LabAccessRequest, PostEditAnalysisRequest, PostEditAnalysisResult, TranslateWithAnalysisRequest, TranslateWithAnalysisResponse, PersonalProfileResponse
+from .translation import translate_message, translate_with_profile
+from .analysis import analyze_post_edits
 from datetime import datetime, timedelta
 from typing import Optional
 import json
@@ -188,19 +188,20 @@ async def send_message(sid, data):
 
         # Use personalized translation if profile exists and is active
         if active_profile and active_profile.get("analysis_count", 0) > 0:
-            # Build gap_analysis dict from profile using CTI two-factor structure
-            gap_analysis = {
-                "common_inauthenticity_fixes": active_profile.get("common_inauthenticity_fixes", []),
-                "common_authenticity_patterns": active_profile.get("common_authenticity_patterns", []),
-                "identity_summary": active_profile.get("identity_summary", "")
+            # Build profile data from observed patterns
+            profile_data = {
+                "observed_patterns": active_profile.get("observed_patterns", []),
+                "user_priorities": active_profile.get("user_priorities", []),
+                "change_motivations": active_profile.get("change_motivations", []),
+                "profile_summary": active_profile.get("profile_summary", "")
             }
 
             # Translate to all languages using personal profile
             translations = {
-                'text_en': translate_with_gap_analysis(data['text'], user_lang, gap_analysis, "en") if user_lang != "en" else data['text'],
-                'text_ko': translate_with_gap_analysis(data['text'], user_lang, gap_analysis, "ko") if user_lang != "ko" else data['text'],
-                'text_es': translate_with_gap_analysis(data['text'], user_lang, gap_analysis, "es") if user_lang != "es" else data['text'],
-                'text_ur': translate_with_gap_analysis(data['text'], user_lang, gap_analysis, "ur") if user_lang != "ur" else data['text'],
+                'text_en': translate_with_profile(data['text'], user_lang, profile_data, "en") if user_lang != "en" else data['text'],
+                'text_ko': translate_with_profile(data['text'], user_lang, profile_data, "ko") if user_lang != "ko" else data['text'],
+                'text_es': translate_with_profile(data['text'], user_lang, profile_data, "es") if user_lang != "es" else data['text'],
+                'text_ur': translate_with_profile(data['text'], user_lang, profile_data, "ur") if user_lang != "ur" else data['text'],
             }
         else:
             translations = translate_message(data['text'], user_lang)
@@ -391,28 +392,27 @@ async def get_current_user_info(current_user: str = Depends(get_current_user)):
         )
 
 
-# CTI Gap Analysis Endpoints
-@app.post("/analysis/identity-gap", response_model=GapAnalysisResult)
-async def analyze_gap(
-    request: GapAnalysisRequest,
+# Post-Editing Analysis Endpoints
+@app.post("/analysis/post-edits", response_model=PostEditAnalysisResult)
+async def analyze_edits(
+    request: PostEditAnalysisRequest,
     current_user: str = Depends(get_current_user)
 ):
     """
-    Analyze the identity gap between machine translation and user-edited version.
+    Analyze post-editing patterns between machine translation and user-edited version.
 
-    Uses CTI's Personal-Enacted Identity Gap concept to identify where MT fails
-    to represent the user's authentic self.
+    Identifies user preferences and communication style from their editing behavior.
     """
     try:
-        # Perform CTI gap analysis
-        analysis_result = analyze_identity_gap(
+        # Perform post-editing analysis
+        analysis_result = analyze_post_edits(
             mt_version=request.mt_version,
             edited_version=request.edited_version
         )
 
-        # Optionally save to database for future profile building
+        # Save to database for future profile building
         db = get_db()
-        gap_analyses_collection = db.gap_analyses
+        post_edit_analyses_collection = db.post_edit_analyses
 
         analysis_doc = {
             "username": current_user,
@@ -422,45 +422,45 @@ async def analyze_gap(
             "created_at": datetime.utcnow()
         }
 
-        gap_analyses_collection.insert_one(analysis_doc)
+        post_edit_analyses_collection.insert_one(analysis_doc)
 
-        return GapAnalysisResult(**analysis_result)
+        return PostEditAnalysisResult(**analysis_result)
 
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to analyze identity gap: {str(e)}"
+            detail=f"Failed to analyze post-edits: {str(e)}"
         )
 
 
 @app.post("/translation/with-analysis", response_model=TranslateWithAnalysisResponse)
-async def translate_with_identity(
+async def translate_with_preferences(
     request: TranslateWithAnalysisRequest,
     current_user: str = Depends(get_current_user)
 ):
     """
-    Translate text while preserving identity markers from gap analysis.
+    Translate text while applying user preferences from post-edit analysis.
 
-    Uses the restored markers and identity information from a previous gap analysis
-    to produce translations that sound more like the user.
+    Uses the preferences and style patterns from analysis to produce
+    translations that match the user's communication style.
     """
     try:
-        # Default target language to English if not specified in gap_analysis
-        target_lang = request.gap_analysis.get("target_language", "en")
+        # Default target language to English if not specified
+        target_lang = request.post_edit_analysis.get("target_language", "en")
 
-        translated_text = translate_with_gap_analysis(
+        translated_text = translate_with_profile(
             text=request.text,
             source_lang=request.source_lang,
-            gap_analysis=request.gap_analysis,
+            profile_data=request.post_edit_analysis,
             target_language=target_lang
         )
 
         return TranslateWithAnalysisResponse(
             translated_text=translated_text,
             target_language=target_lang,
-            identity_preserved=True
+            preferences_applied=True
         )
 
     except HTTPException:
@@ -468,7 +468,7 @@ async def translate_with_identity(
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to translate with identity preservation: {str(e)}"
+            detail=f"Failed to translate with preferences: {str(e)}"
         )
 
 
@@ -478,16 +478,16 @@ async def get_analysis_history(
     limit: int = 10
 ):
     """
-    Get the user's gap analysis history.
+    Get the user's post-editing analysis history.
 
     Returns past analyses that can be used for profile building or review.
     """
     try:
         db = get_db()
-        gap_analyses_collection = db.gap_analyses
+        post_edit_analyses_collection = db.post_edit_analyses
 
         analyses = list(
-            gap_analyses_collection.find({"username": current_user})
+            post_edit_analyses_collection.find({"username": current_user})
             .sort("created_at", -1)
             .limit(limit)
         )
@@ -512,10 +512,10 @@ async def get_analysis_history(
 @app.get("/profile/personal", response_model=PersonalProfileResponse)
 async def get_personal_profile(current_user: str = Depends(get_current_user)):
     """
-    Get the user's personal profile built from gap analyses.
+    Get the user's personal profile built from post-editing analyses.
 
-    Aggregates identity markers from all past gap analyses to build
-    a comprehensive communication identity profile.
+    Aggregates preferences from all past analyses to build
+    a comprehensive communication style profile.
     """
     try:
         db = get_db()
@@ -526,11 +526,10 @@ async def get_personal_profile(current_user: str = Depends(get_current_user)):
 
         if profile:
             return PersonalProfileResponse(
-                common_inauthenticity_fixes=profile.get("common_inauthenticity_fixes", []),
-                inauthenticity_scale_items=profile.get("inauthenticity_scale_items", {}),
-                common_authenticity_patterns=profile.get("common_authenticity_patterns", []),
-                authenticity_scale_items=profile.get("authenticity_scale_items", {}),
-                identity_summary=profile.get("identity_summary", ""),
+                observed_patterns=profile.get("observed_patterns", []),
+                user_priorities=profile.get("user_priorities", []),
+                change_motivations=profile.get("change_motivations", []),
+                profile_summary=profile.get("profile_summary", ""),
                 analysis_count=profile.get("analysis_count", 0),
                 last_updated=profile.get("last_updated"),
                 is_active=profile.get("is_active", True)
@@ -549,94 +548,75 @@ async def get_personal_profile(current_user: str = Depends(get_current_user)):
 @app.post("/profile/build", response_model=PersonalProfileResponse)
 async def build_personal_profile(current_user: str = Depends(get_current_user)):
     """
-    Build or update personal profile from all gap analyses.
+    Build or update personal profile from all post-editing analyses.
 
-    Aggregates patterns from all past gap analyses to create a comprehensive
-    communication identity profile.
+    Aggregates patterns from all past analyses to create a comprehensive
+    communication style profile.
     """
     try:
         db = get_db()
-        gap_analyses_collection = db.gap_analyses
+        post_edit_analyses_collection = db.post_edit_analyses
         profiles_collection = db.personal_profiles
 
-        # Get all gap analyses for the user
-        analyses = list(gap_analyses_collection.find({"username": current_user}))
+        # Get all post-edit analyses for the user
+        analyses = list(post_edit_analyses_collection.find({"username": current_user}))
 
         if not analyses:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="No gap analyses found. Please analyze some translations first."
+                detail="No analyses found. Please analyze some translations first."
             )
 
-        # Aggregate patterns from all analyses using CTI two-factor structure
-        from collections import Counter
-
-        all_inauthenticity_fixes = []
-        all_authenticity_patterns = []
-        inauthenticity_item_counts = {}  # Count per scale item (4,5,6,7,8,9,10)
-        authenticity_item_counts = {}  # Count per scale item (1,2,3,11)
-        summaries = []
+        # Aggregate patterns from all analyses (exploratory approach)
+        all_patterns = []
+        all_priorities = []
+        all_motivations = []
+        all_implications = []
 
         for analysis in analyses:
             result = analysis.get("analysis_result", {})
 
-            # Collect Factor 1: Inauthenticity fixes
-            for issue in result.get("factor1_inauthenticity", []):
-                if isinstance(issue, dict):
-                    user_fix = issue.get("user_fix", "")
-                    if user_fix:
-                        all_inauthenticity_fixes.append(user_fix)
-                    # Count scale items
-                    scale_item = issue.get("scale_item", "")
-                    if scale_item:
-                        inauthenticity_item_counts[scale_item] = inauthenticity_item_counts.get(scale_item, 0) + 1
+            # Collect emerging patterns
+            if result.get("emerging_patterns"):
+                all_patterns.append(result["emerging_patterns"])
 
-            # Collect Factor 2: Authenticity restorations
-            for restoration in result.get("factor2_authenticity", []):
-                if isinstance(restoration, dict):
-                    user_restoration = restoration.get("user_restoration", "")
-                    if user_restoration:
-                        all_authenticity_patterns.append(user_restoration)
-                    # Count scale items
-                    scale_item = restoration.get("scale_item", "")
-                    if scale_item:
-                        authenticity_item_counts[scale_item] = authenticity_item_counts.get(scale_item, 0) + 1
+            # Collect user priorities
+            if result.get("user_priorities"):
+                all_priorities.append(result["user_priorities"])
 
-            # Collect summaries
-            if result.get("summary"):
-                summaries.append(result["summary"])
+            # Collect change motivations from observed changes
+            for change in result.get("observed_changes", []):
+                if isinstance(change, dict) and change.get("possible_motivation"):
+                    all_motivations.append(change["possible_motivation"])
 
-        # Get most frequent patterns
-        inauthenticity_counter = Counter(all_inauthenticity_fixes)
-        top_inauthenticity_fixes = [item for item, _ in inauthenticity_counter.most_common(10)]
+            # Collect implications
+            if result.get("implications"):
+                all_implications.append(result["implications"])
 
-        authenticity_counter = Counter(all_authenticity_patterns)
-        top_authenticity_patterns = [item for item, _ in authenticity_counter.most_common(10)]
+        # Keep unique patterns (limit to most recent/relevant)
+        unique_patterns = list(dict.fromkeys(all_patterns))[:10]
+        unique_priorities = list(dict.fromkeys(all_priorities))[:10]
+        unique_motivations = list(dict.fromkeys(all_motivations))[:15]
 
-        # Create aggregate summary based on CTI factors
-        identity_summary = f"Based on {len(analyses)} analyses using CTI Personal-Enacted Identity Gap Scale: "
+        # Create aggregate summary
+        profile_summary = f"Based on {len(analyses)} exploratory analyses: "
 
-        # Summarize Factor 1 patterns
-        if inauthenticity_item_counts:
-            most_common_issue = max(inauthenticity_item_counts, key=inauthenticity_item_counts.get)
-            identity_summary += f"Most common inauthenticity issue is scale item {most_common_issue}. "
+        if unique_patterns:
+            profile_summary += f"Observed patterns include: {unique_patterns[0]}. "
 
-        # Summarize Factor 2 patterns
-        if authenticity_item_counts:
-            most_common_auth = max(authenticity_item_counts, key=authenticity_item_counts.get)
-            identity_summary += f"Most common authenticity restoration is scale item {most_common_auth}. "
+        if unique_priorities:
+            profile_summary += f"User priorities: {unique_priorities[0]}. "
 
-        if top_authenticity_patterns:
-            identity_summary += f"User frequently restores: {', '.join(top_authenticity_patterns[:3])}."
+        if all_implications:
+            profile_summary += f"Implications: {all_implications[0]}"
 
         # Build profile document
         profile_doc = {
             "username": current_user,
-            "common_inauthenticity_fixes": top_inauthenticity_fixes,
-            "inauthenticity_scale_items": inauthenticity_item_counts,
-            "common_authenticity_patterns": top_authenticity_patterns,
-            "authenticity_scale_items": authenticity_item_counts,
-            "identity_summary": identity_summary.strip(),
+            "observed_patterns": unique_patterns,
+            "user_priorities": unique_priorities,
+            "change_motivations": unique_motivations,
+            "profile_summary": profile_summary.strip(),
             "analysis_count": len(analyses),
             "last_updated": datetime.utcnow(),
             "is_active": True
@@ -650,11 +630,10 @@ async def build_personal_profile(current_user: str = Depends(get_current_user)):
         )
 
         return PersonalProfileResponse(
-            common_inauthenticity_fixes=profile_doc["common_inauthenticity_fixes"],
-            inauthenticity_scale_items=profile_doc["inauthenticity_scale_items"],
-            common_authenticity_patterns=profile_doc["common_authenticity_patterns"],
-            authenticity_scale_items=profile_doc["authenticity_scale_items"],
-            identity_summary=profile_doc["identity_summary"],
+            observed_patterns=profile_doc["observed_patterns"],
+            user_priorities=profile_doc["user_priorities"],
+            change_motivations=profile_doc["change_motivations"],
+            profile_summary=profile_doc["profile_summary"],
             analysis_count=profile_doc["analysis_count"],
             last_updated=profile_doc["last_updated"],
             is_active=profile_doc["is_active"]
@@ -700,6 +679,35 @@ async def toggle_profile_active(current_user: str = Depends(get_current_user)):
         )
 
 
+@app.delete("/profile/personal")
+async def delete_personal_profile(current_user: str = Depends(get_current_user)):
+    """
+    Delete the user's personal profile and all analysis history.
+    """
+    try:
+        db = get_db()
+        profiles_collection = db.personal_profiles
+        post_edit_analyses_collection = db.post_edit_analyses
+
+        # Delete profile
+        profile_result = profiles_collection.delete_one({"username": current_user})
+
+        # Delete all analysis history
+        analyses_result = post_edit_analyses_collection.delete_many({"username": current_user})
+
+        return {
+            "message": "Profile and analysis history deleted successfully",
+            "profile_deleted": profile_result.deleted_count > 0,
+            "analyses_deleted": analyses_result.deleted_count
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to delete profile: {str(e)}"
+        )
+
+
 # Anonymous Translation Endpoints (No Auth Required)
 from pydantic import BaseModel
 from typing import Dict, Any
@@ -730,15 +738,16 @@ async def anonymous_translate(request: AnonymousTranslateRequest):
     try:
         if request.use_profile and request.profile_data:
             # Use personalized translation with profile
-            gap_analysis = {
-                "common_inauthenticity_fixes": request.profile_data.get("common_inauthenticity_fixes", []),
-                "common_authenticity_patterns": request.profile_data.get("common_authenticity_patterns", []),
-                "identity_summary": request.profile_data.get("identity_summary", "")
+            profile_data = {
+                "observed_patterns": request.profile_data.get("observed_patterns", []),
+                "user_priorities": request.profile_data.get("user_priorities", []),
+                "change_motivations": request.profile_data.get("change_motivations", []),
+                "profile_summary": request.profile_data.get("profile_summary", "")
             }
-            translated_text = translate_with_gap_analysis(
+            translated_text = translate_with_profile(
                 text=request.text,
                 source_lang=request.source_lang,
-                gap_analysis=gap_analysis,
+                profile_data=profile_data,
                 target_language=request.target_lang
             )
             used_profile = True
@@ -763,22 +772,22 @@ async def anonymous_translate(request: AnonymousTranslateRequest):
         )
 
 
-@app.post("/analyze", response_model=GapAnalysisResult)
-async def anonymous_analyze_gap(request: AnonymousGapAnalysisRequest):
+@app.post("/analyze", response_model=PostEditAnalysisResult)
+async def anonymous_analyze_edits(request: AnonymousGapAnalysisRequest):
     """
-    Analyze identity gap without authentication.
+    Analyze post-edits without authentication.
     Results are returned to client for localStorage storage.
     """
     try:
-        analysis_result = analyze_identity_gap(
+        analysis_result = analyze_post_edits(
             mt_version=request.mt_version,
             edited_version=request.edited_version
         )
-        return GapAnalysisResult(**analysis_result)
+        return PostEditAnalysisResult(**analysis_result)
 
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to analyze identity gap: {str(e)}"
+            detail=f"Failed to analyze post-edits: {str(e)}"
         )
 

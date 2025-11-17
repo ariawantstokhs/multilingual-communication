@@ -82,7 +82,8 @@ Open http://localhost:3000 in your browser.
   text_ur: "ہیلو!"
 }
 ```
-
+todo: fix the history tap
+and add the summary to reflect the what is in history
 ## Troubleshooting
 
 | Issue | Solution |

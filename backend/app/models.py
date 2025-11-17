@@ -38,67 +38,58 @@ class LabAccessRequest(BaseModel):
     password: str
 
 
-# CTI Gap Analysis Models (Based on Personal-Enacted Identity Gap Scale - Jung & Hecht 2004)
-class Factor1Inauthenticity(BaseModel):
-    """Factor 1: Where MT causes inauthentic expression (items 4,5,6,7,8,9,10)"""
-    mt_issue: str
-    user_fix: str
-    scale_item: str  # "4", "5", "6", "7", "8", "9", or "10"
-    explanation: str
+# Post-Editing Analysis Models (Based on Green et al. 2013)
+class ObservedChange(BaseModel):
+    """Individual change observed during post-editing analysis"""
+    mt_text: str  # Original text from MT
+    user_text: str  # User's edited version
+    change_description: str  # Open description of what changed
+    possible_motivation: str  # Why user might have made this change
 
 
-class Factor2Authenticity(BaseModel):
-    """Factor 2: Where user restores authentic expression (items 1,2,3,11)"""
-    mt_failure: str
-    user_restoration: str
-    scale_item: str  # "1", "2", "3", or "11"
-    explanation: str
-
-
-class GapAnalysisRequest(BaseModel):
+class PostEditAnalysisRequest(BaseModel):
     mt_version: str
     edited_version: str
 
 
-class GapAnalysisResult(BaseModel):
-    factor1_inauthenticity: list[Factor1Inauthenticity] = []
-    factor2_authenticity: list[Factor2Authenticity] = []
-    summary: str = ""
+class PostEditAnalysisResult(BaseModel):
+    observed_changes: list[ObservedChange] = []
+    emerging_patterns: str = ""
+    user_priorities: str = ""
+    implications: str = ""
 
 
 class TranslateWithAnalysisRequest(BaseModel):
     text: str
     source_lang: str = "ko"
-    gap_analysis: dict[str, Any]
+    post_edit_analysis: dict[str, Any]
 
 
 class TranslateWithAnalysisResponse(BaseModel):
     translated_text: str
     target_language: str
-    identity_preserved: bool = True
+    preferences_applied: bool = True
 
 
-# Personal Profile Models (built from gap analyses using CTI two-factor structure)
+# Personal Profile Models (built from post-editing analysis)
 class PersonalProfile(BaseModel):
     username: str
-    # Factor 1: Common inauthenticity issues the user corrects (items 4,5,6,7,8,9,10)
-    common_inauthenticity_fixes: list[str] = []  # Patterns user frequently fixes
-    inauthenticity_scale_items: dict[str, int] = {}  # Count per scale item
-    # Factor 2: Common authenticity restorations (items 1,2,3,11)
-    common_authenticity_patterns: list[str] = []  # How user expresses authentically
-    authenticity_scale_items: dict[str, int] = {}  # Count per scale item
-    identity_summary: str = ""
+    # Aggregated from exploratory analysis
+    observed_patterns: list[str] = []  # Patterns that emerged across analyses
+    user_priorities: list[str] = []  # What matters most to this user
+    change_motivations: list[str] = []  # Common reasons for changes
+    # Summary
+    profile_summary: str = ""
     analysis_count: int = 0
     last_updated: Optional[datetime] = None
     is_active: bool = True
 
 
 class PersonalProfileResponse(BaseModel):
-    common_inauthenticity_fixes: list[str] = []
-    inauthenticity_scale_items: dict[str, int] = {}
-    common_authenticity_patterns: list[str] = []
-    authenticity_scale_items: dict[str, int] = {}
-    identity_summary: str = ""
+    observed_patterns: list[str] = []
+    user_priorities: list[str] = []
+    change_motivations: list[str] = []
+    profile_summary: str = ""
     analysis_count: int = 0
     last_updated: Optional[datetime] = None
     is_active: bool = True

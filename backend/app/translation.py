@@ -41,53 +41,54 @@ def translate_message(text: str, source_lang: str = "en") -> Dict[str, str]:
     }
 
 
-def translate_with_gap_analysis(
-    text: str, source_lang: str, gap_analysis: dict, target_language: str = "en"
+def translate_with_profile(
+    text: str, source_lang: str, profile_data: dict, target_language: str = "en"
 ) -> str:
     """
-    Translate text while preserving identity markers identified from CTI gap analysis.
-    Uses the two-factor structure from Jung & Hecht (2004).
+    Translate text while applying observed user patterns from post-editing analysis.
 
     Args:
         text: Text to translate
         source_lang: Source language code (e.g., 'ko')
-        gap_analysis: Gap analysis result with CTI two-factor patterns
+        profile_data: User profile with observed patterns and priorities
         target_language: Target language for translation (default: 'en')
 
     Returns:
-        str: Translated text that preserves user's identity markers
+        str: Translated text that matches user's observed patterns
     """
     client = _get_client()
 
-    # Extract identity patterns from CTI two-factor analysis
-    inauthenticity_fixes = gap_analysis.get("common_inauthenticity_fixes", [])
-    authenticity_patterns = gap_analysis.get("common_authenticity_patterns", [])
-    summary = gap_analysis.get("identity_summary", "")
+    # Extract observed patterns from profile
+    observed_patterns = profile_data.get("observed_patterns", [])
+    user_priorities = profile_data.get("user_priorities", [])
+    change_motivations = profile_data.get("change_motivations", [])
+    summary = profile_data.get("profile_summary", "")
 
-    # Build identity preservation prompt based on CTI factors
-    identity_context = f"""
-User's Communication Identity Profile (based on CTI Personal-Enacted Identity Gap Scale):
+    # Build personalization context from exploratory analysis
+    profile_context = f"""
+User's Observed Communication Patterns:
 
-FACTOR 1 - What the user fixes to avoid inauthenticity:
-{chr(10).join(['- ' + fix for fix in inauthenticity_fixes[:5]]) if inauthenticity_fixes else '- No patterns identified yet'}
+Emerging Patterns:
+{chr(10).join(['- ' + pattern for pattern in observed_patterns[:5]]) if observed_patterns else '- No patterns observed yet'}
 
-FACTOR 2 - How the user restores authentic self-expression:
-{chr(10).join(['- ' + pattern for pattern in authenticity_patterns[:5]]) if authenticity_patterns else '- No patterns identified yet'}
+User Priorities:
+{chr(10).join(['- ' + priority for priority in user_priorities[:5]]) if user_priorities else '- No specific priorities identified'}
 
-Identity Summary: {summary}
+Common Motivations for Changes:
+{chr(10).join(['- ' + motivation for motivation in change_motivations[:5]]) if change_motivations else '- No motivations identified yet'}
+
+Profile Summary: {summary}
 """
 
-    personalized_prompt = f"""You translate messages while preserving the user's authentic communication identity.
+    personalized_prompt = f"""You translate messages while considering the user's observed editing patterns.
 
-{identity_context}
+{profile_context}
 
-CRITICAL INSTRUCTIONS based on CTI Personal-Enacted Identity Gap:
-1. Avoid the inauthenticity patterns - don't make the same mistakes MT typically makes
-2. Apply the user's authentic expression patterns to make the translation sound like them
-3. Ensure the translation allows the "real me" to come through (Factor 2, item 1)
-4. Make sure the translation is consistent with who the user really is (Factor 2, item 2)
-5. Let the user "be themselves" through the translation (Factor 2, item 3)
-6. Allow free expression of the real self (Factor 2, item 11)
+TRANSLATION INSTRUCTIONS:
+1. Consider the patterns that emerged from user's past edits
+2. Prioritize what matters most to this user
+3. Apply insights from their common motivations for changes
+4. Make the translation align with their observed preferences
 
 Return ONLY the translated text in {target_language}. No JSON, no explanation, just the translation."""
 
@@ -106,6 +107,6 @@ Return ONLY the translated text in {target_language}. No JSON, no explanation, j
         result = completion.choices[0].message.content
         return result.strip() if result else text
     except Exception as e:
-        print(f"Error in identity-preserving translation: {e}")
+        print(f"Error in personalized translation: {e}")
         # Fallback to original text if translation fails
         return text

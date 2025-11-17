@@ -1,7 +1,8 @@
 """
-CTI-based Identity Gap Analysis
+Post-Editing Analysis Module
 
-Analyzes Personal-Enacted Identity Gaps between MT and user-edited versions.
+Exploratory analysis of user post-editing behavior in machine translation.
+Based on: Green, S., Heer, J., & Manning, C. D. (2013). The efficacy of human post-editing for language translation. CHI '13.
 """
 
 import json
@@ -9,51 +10,60 @@ import os
 from openai import OpenAI
 
 
-def analyze_identity_gap(mt_version: str, edited_version: str) -> dict:
+def analyze_post_edits(mt_version: str, edited_version: str) -> dict:
+    """
+    Exploratory analysis of user post-editing behavior.
+
+    Following Green et al. (2013) who demonstrated that post-editing
+    patterns reveal user priorities, we conduct open-ended analysis
+    to identify what types of changes users make and why.
+
+    This formative analysis aims to discover patterns rather than
+    impose predetermined categories.
+
+    Args:
+        mt_version: The machine translation output
+        edited_version: The user's edited version
+
+    Returns:
+        dict: Open-ended analysis of observed changes and emerging patterns
+    """
     client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-    prompt = f"""Analyze the Personal-Enacted Identity Gap between machine translation and user-edited version.
+    prompt = f"""Analyze what changed between MT output and user's edited version.
 
-Machine Translation: {mt_version}
-User-Edited Version: {edited_version}
+MT Output: {mt_version}
+User's Version: {edited_version}
 
-Identify specific instances where MT created identity gaps and user edits restored authentic self-expression.
+For each change you identify:
+1. What specifically changed (quote the text)
+2. Describe the nature of the change
+3. What this might reveal about user's needs/preferences
 
-Use these validated criteria (Personal-Enacted Identity Gap Scale) to identify gaps:
-- User expresses themselves in ways that are not the real them
-- User does not reveal important aspects of themselves
-- User loses sense of who they are
-- User does not express real self when different from expectations
-- User misleads others about who they really are
-- There is difference between real self and impression given
-- User cannot speak truthfully about themselves
-- Others cannot get to know the real user
-- User cannot communicate consistently with who they really are
-- User cannot be themselves when communicating
-- User cannot freely express the real them
-
-For each change, identify how MT violated these criteria and how user edits restored authenticity.
+Don't force changes into predetermined categories - just describe what you observe.
 
 Return JSON:
 {{
-    "identity_gaps": [
+    "observed_changes": [
         {{
-            "mt_text": "The specific MT text that created the gap",
-            "user_edit": "How the user changed it",
-            "gap_type": "Brief category (e.g., formality mismatch, tone shift, cultural expression, emotional authenticity)",
-            "explanation": "How this change reduces the identity gap and restores authentic expression"
+            "mt_text": "original text from MT",
+            "user_text": "user's edited version",
+            "change_description": "open description of what changed and how",
+            "possible_motivation": "why user might have made this change"
         }}
     ],
-    "summary": "Overall summary of how the user's edits reduce the Personal-Enacted Identity Gap"
+    "emerging_patterns": "What patterns do you notice across all changes?",
+    "user_priorities": "What seems to matter most to this user based on their edits?",
+    "implications": "What does this suggest for MT personalization?"
 }}
 
-Focus on meaningful changes that affect how authentically the user can express their identity."""
+Focus on meaningful changes. Describe observations openly without forcing categorization."""
 
     try:
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
-                {"role": "system", "content": "You are an expert in Communication Theory of Identity (CTI). Analyze Personal-Enacted Identity Gaps - the discrepancy between who someone is and how they express themselves in communication."},
+                {"role": "system", "content": "You are analyzing post-editing patterns to understand user behavior. Describe what you observe without imposing predetermined categories. Focus on discovering patterns."},
                 {"role": "user", "content": prompt}
             ],
             response_format={"type": "json_object"},
