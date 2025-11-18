@@ -28,6 +28,7 @@ interface PersonalProfile {
 
 interface StoredAnalysis {
   id: string;
+  _id?: string;
   mt_version: string;
   edited_version: string;
   analysis_result: PostEditAnalysisResult;
@@ -43,6 +44,7 @@ const LANGUAGES = {
 
 // Hardcoded API URL for localhost testing
 const API_URL = 'http://localhost:8000';
+
 
 // Quick Stats Component
 function AnalysisQuickStats({
@@ -105,7 +107,8 @@ function AnalysisModal({
     setAnalysisResult(null);
 
     try {
-      const response = await fetch(`${API_URL}/analyze`, {
+      // Call backend API which saves to MongoDB
+      const response = await fetch(`${API_URL}/analysis/post-edits`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -121,22 +124,6 @@ function AnalysisModal({
 
       const result = await response.json();
       setAnalysisResult(result);
-
-      // Save to localStorage history
-      const newAnalysis: StoredAnalysis = {
-        id: Date.now().toString(),
-        mt_version: mtVersion.trim(),
-        edited_version: editedVersion.trim(),
-        analysis_result: result,
-        created_at: new Date().toISOString()
-      };
-
-      const existingHistory = localStorage.getItem('post_edit_analysis_history');
-      const historyArray: StoredAnalysis[] = existingHistory ? JSON.parse(existingHistory) : [];
-      historyArray.unshift(newAnalysis);
-      // Keep only last 50 analyses
-      const trimmedHistory = historyArray.slice(0, 50);
-      localStorage.setItem('post_edit_analysis_history', JSON.stringify(trimmedHistory));
 
       onAnalysisComplete(result);
     } catch (err) {
@@ -298,16 +285,35 @@ function ProfileModal({ profile, onClose, onRebuild, onClear }: {
   const [activeTooltip, setActiveTooltip] = useState<string | null>(null);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
 
-  // Load history when modal opens
+  // Load history from backend when modal opens
   useEffect(() => {
-    const stored = localStorage.getItem('post_edit_analysis_history');
-    if (stored) {
+    const fetchHistory = async () => {
       try {
-        setHistory(JSON.parse(stored));
+        const response = await fetch(`${API_URL}/analysis/history?limit=50`);
+        if (response.ok) {
+          const data = await response.json();
+          // Map backend response to StoredAnalysis format
+          const mappedHistory: StoredAnalysis[] = data.map((item: {
+            _id: string;
+            mt_version: string;
+            edited_version: string;
+            analysis_result: PostEditAnalysisResult;
+            created_at: string;
+          }) => ({
+            id: item._id,
+            _id: item._id,
+            mt_version: item.mt_version,
+            edited_version: item.edited_version,
+            analysis_result: item.analysis_result,
+            created_at: item.created_at
+          }));
+          setHistory(mappedHistory);
+        }
       } catch {
         setHistory([]);
       }
-    }
+    };
+    fetchHistory();
   }, []);
 
   // Render changes for a single analysis
@@ -498,101 +504,59 @@ function TranslationInterface() {
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [error, setError] = useState('');
 
-  // Load profile from localStorage on mount
+  // Load profile from backend on mount
   useEffect(() => {
-    const stored = localStorage.getItem('personal_profile');
-    if (stored) {
+    const fetchProfile = async () => {
       try {
-        setPersonalProfile(JSON.parse(stored));
+        const response = await fetch(`${API_URL}/profile/personal`);
+        if (response.ok) {
+          const data = await response.json();
+          if (data.analysis_count > 0) {
+            setPersonalProfile(data);
+          }
+        }
       } catch {
         setPersonalProfile(null);
       }
-    }
+    };
+    fetchProfile();
   }, []);
 
-  const buildProfileFromHistory = () => {
-    const historyStr = localStorage.getItem('post_edit_analysis_history');
-    if (!historyStr) {
-      alert('No analysis history found. Please analyze some translations first.');
-      return;
-    }
+  const buildProfileFromHistory = async () => {
+    try {
+      const response = await fetch(`${API_URL}/profile/build`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
 
-    const history: StoredAnalysis[] = JSON.parse(historyStr);
-    if (history.length === 0) {
-      alert('No analysis history found. Please analyze some translations first.');
-      return;
-    }
-
-    // Aggregate patterns from all analyses (exploratory approach)
-    const allPatterns: string[] = [];
-    const allPriorities: string[] = [];
-    const allMotivations: string[] = [];
-    const allImplications: string[] = [];
-
-    for (const analysis of history) {
-      const result = analysis.analysis_result;
-
-      // Collect emerging patterns
-      if (result.emerging_patterns) {
-        allPatterns.push(result.emerging_patterns);
+      if (!response.ok) {
+        const data = await response.json();
+        alert(data.detail || 'Failed to build profile');
+        return;
       }
 
-      // Collect user priorities
-      if (result.user_priorities) {
-        allPriorities.push(result.user_priorities);
-      }
-
-      // Collect change motivations
-      for (const change of result.observed_changes) {
-        if (change.possible_motivation) {
-          allMotivations.push(change.possible_motivation);
-        }
-      }
-
-      // Collect implications
-      if (result.implications) {
-        allImplications.push(result.implications);
-      }
+      const newProfile = await response.json();
+      setPersonalProfile(newProfile);
+      alert('Profile built successfully!');
+    } catch (err) {
+      alert('Failed to build profile. Please try again.');
     }
-
-    // Keep unique patterns
-    const uniquePatterns = [...new Set(allPatterns)].slice(0, 10);
-    const uniquePriorities = [...new Set(allPriorities)].slice(0, 10);
-    const uniqueMotivations = [...new Set(allMotivations)].slice(0, 15);
-
-    // Create summary
-    let summary = `Based on ${history.length} exploratory analyses: `;
-    if (uniquePatterns.length > 0) {
-      summary += `Observed patterns include: ${uniquePatterns[0]}. `;
-    }
-    if (uniquePriorities.length > 0) {
-      summary += `User priorities: ${uniquePriorities[0]}. `;
-    }
-    if (allImplications.length > 0) {
-      summary += `Implications: ${allImplications[0]}`;
-    }
-
-    const newProfile: PersonalProfile = {
-      observed_patterns: uniquePatterns,
-      user_priorities: uniquePriorities,
-      change_motivations: uniqueMotivations,
-      profile_summary: summary.trim(),
-      analysis_count: history.length,
-      last_updated: new Date().toISOString(),
-      is_active: true
-    };
-
-    setPersonalProfile(newProfile);
-    localStorage.setItem('personal_profile', JSON.stringify(newProfile));
-    alert('Profile built successfully!');
   };
 
-  const clearProfile = () => {
-    // Clear localStorage
-    localStorage.removeItem('personal_profile');
-    localStorage.removeItem('post_edit_analysis_history');
-    // Reset state
-    setPersonalProfile(null);
+  const clearProfile = async () => {
+    try {
+      const response = await fetch(`${API_URL}/profile/personal`, {
+        method: 'DELETE'
+      });
+
+      if (response.ok) {
+        setPersonalProfile(null);
+      } else {
+        alert('Failed to clear profile');
+      }
+    } catch {
+      alert('Failed to clear profile');
+    }
   };
 
   const handleTranslate = async () => {
@@ -647,10 +611,10 @@ function TranslationInterface() {
     setTranslatedText(sourceText);
   };
 
-  const handleAnalysisComplete = (result: PostEditAnalysisResult) => {
+  const handleAnalysisComplete = async (result: PostEditAnalysisResult) => {
     console.log('Analysis complete:', result);
-    // Optionally rebuild profile after each analysis
-    buildProfileFromHistory();
+    // Rebuild profile after each analysis
+    await buildProfileFromHistory();
   };
 
   return (

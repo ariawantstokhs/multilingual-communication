@@ -396,13 +396,14 @@ async def get_current_user_info(current_user: str = Depends(get_current_user)):
 @app.post("/analysis/post-edits", response_model=PostEditAnalysisResult)
 async def analyze_edits(
     request: PostEditAnalysisRequest,
-    current_user: str = Depends(get_current_user)
+    # current_user: str = Depends(get_current_user)
 ):
     """
     Analyze post-editing patterns between machine translation and user-edited version.
 
     Identifies user preferences and communication style from their editing behavior.
     """
+    current_user = "default_user"  # Temporary: no auth
     try:
         # Perform post-editing analysis
         analysis_result = analyze_post_edits(
@@ -438,7 +439,7 @@ async def analyze_edits(
 @app.post("/translation/with-analysis", response_model=TranslateWithAnalysisResponse)
 async def translate_with_preferences(
     request: TranslateWithAnalysisRequest,
-    current_user: str = Depends(get_current_user)
+    # current_user: str = Depends(get_current_user)
 ):
     """
     Translate text while applying user preferences from post-edit analysis.
@@ -446,6 +447,7 @@ async def translate_with_preferences(
     Uses the preferences and style patterns from analysis to produce
     translations that match the user's communication style.
     """
+    current_user = "default_user"  # Temporary: no auth
     try:
         # Default target language to English if not specified
         target_lang = request.post_edit_analysis.get("target_language", "en")
@@ -474,7 +476,7 @@ async def translate_with_preferences(
 
 @app.get("/analysis/history")
 async def get_analysis_history(
-    current_user: str = Depends(get_current_user),
+    # current_user: str = Depends(get_current_user),
     limit: int = 10
 ):
     """
@@ -482,6 +484,7 @@ async def get_analysis_history(
 
     Returns past analyses that can be used for profile building or review.
     """
+    current_user = "default_user"  # Temporary: no auth
     try:
         db = get_db()
         post_edit_analyses_collection = db.post_edit_analyses
@@ -510,13 +513,16 @@ async def get_analysis_history(
 
 # Personal Profile Endpoints
 @app.get("/profile/personal", response_model=PersonalProfileResponse)
-async def get_personal_profile(current_user: str = Depends(get_current_user)):
+async def get_personal_profile(
+    # current_user: str = Depends(get_current_user)
+):
     """
     Get the user's personal profile built from post-editing analyses.
 
     Aggregates preferences from all past analyses to build
     a comprehensive communication style profile.
     """
+    current_user = "default_user"  # Temporary: no auth
     try:
         db = get_db()
         profiles_collection = db.personal_profiles
@@ -546,13 +552,16 @@ async def get_personal_profile(current_user: str = Depends(get_current_user)):
 
 
 @app.post("/profile/build", response_model=PersonalProfileResponse)
-async def build_personal_profile(current_user: str = Depends(get_current_user)):
+async def build_personal_profile(
+    # current_user: str = Depends(get_current_user)
+):
     """
     Build or update personal profile from all post-editing analyses.
 
     Aggregates patterns from all past analyses to create a comprehensive
     communication style profile.
     """
+    current_user = "default_user"  # Temporary: no auth
     try:
         db = get_db()
         post_edit_analyses_collection = db.post_edit_analyses
@@ -649,8 +658,11 @@ async def build_personal_profile(current_user: str = Depends(get_current_user)):
 
 
 @app.put("/profile/toggle-active")
-async def toggle_profile_active(current_user: str = Depends(get_current_user)):
+async def toggle_profile_active(
+    # current_user: str = Depends(get_current_user)
+):
     """Toggle the personal profile active state."""
+    current_user = "default_user"  # Temporary: no auth
     try:
         db = get_db()
         profiles_collection = db.personal_profiles
@@ -680,10 +692,13 @@ async def toggle_profile_active(current_user: str = Depends(get_current_user)):
 
 
 @app.delete("/profile/personal")
-async def delete_personal_profile(current_user: str = Depends(get_current_user)):
+async def delete_personal_profile(
+    # current_user: str = Depends(get_current_user)
+):
     """
     Delete the user's personal profile and all analysis history.
     """
+    current_user = "default_user"  # Temporary: no auth
     try:
         db = get_db()
         profiles_collection = db.personal_profiles
