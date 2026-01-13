@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import TextareaAutosize from 'react-textarea-autosize';
 import styles from './EditView.module.css';
 
 interface EditViewProps {
@@ -11,19 +12,23 @@ export default function EditView({ initialText, onFinish }: EditViewProps) {
 
     return (
         <div className={styles.container}>
-            <h2 className={styles.title}>Step 3: Finalize your translation</h2>
+            <h2 className={styles.title}>Finalize Translation</h2>
             <p className={styles.description}>
-                Based on the explanations, refine the translation to sound more natural or accurate.
+                Refine the translation below. The box will expand as you type.
             </p>
-            <textarea
-                className={styles.textarea}
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                rows={10}
-            />
-            <button className={styles.finishButton} onClick={() => onFinish(text)}>
-                Finish
-            </button>
+            <div className={styles.editorWrapper}>
+                <TextareaAutosize
+                    className={styles.textarea}
+                    value={text}
+                    onChange={(e) => setText(e.target.value)}
+                    minRows={10}
+                />
+            </div>
+            <div className={styles.actions}>
+                <button className={styles.finishButton} onClick={() => onFinish(text)}>
+                    Complete Editing
+                </button>
+            </div>
         </div>
     );
 }

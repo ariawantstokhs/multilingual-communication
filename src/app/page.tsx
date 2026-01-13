@@ -1,14 +1,15 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { ChevronDown, ChevronUp } from 'lucide-react';
 import TranslationView, { TranslatedSentence } from '@/components/TranslationView';
-import ExplanationView from '@/components/ExplanationView';
+
 import EditView from '@/components/EditView';
-import { ExplanationData } from '@/components/ExplanationCard';
+import ExplanationCard, { ExplanationData } from '@/components/ExplanationCard';
 import { demoText } from '@/lib/demoData';
 import styles from './page.module.css';
 
-type Step = 'input' | 'translation' | 'explanation' | 'edit';
+type Step = 'input' | 'translation' | 'edit';
 
 export default function Home() {
   const [step, setStep] = useState<Step>('input');
@@ -18,6 +19,7 @@ export default function Home() {
   const [explanations, setExplanations] = useState<ExplanationData[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [finalText, setFinalText] = useState('');
+  const [isSourceVisible, setIsSourceVisible] = useState(false);
 
   const handleStartTranslation = async () => {
     setStep('translation');
@@ -66,7 +68,7 @@ export default function Home() {
   };
 
   const handleGetExplanations = async () => {
-    setStep('explanation');
+    setStep('edit'); // Skip standalone explanation view, go straight to edit with sidebar
     setIsLoading(true);
     const newExplanations: ExplanationData[] = [];
 
@@ -90,10 +92,21 @@ export default function Home() {
           }),
         });
         const data = await response.json();
+
+        // Defensive coding: Ensure basic and extended are strings
+        // The API might return an object sometimes (e.g. { explanation: "...", part_of_speech: "..." })
+        const basicText = typeof data.basic === 'object' && data.basic !== null
+          ? (data.basic.explanation || JSON.stringify(data.basic))
+          : String(data.basic || '');
+
+        const extendedText = typeof data.extended === 'object' && data.extended !== null
+          ? (data.extended.explanation || JSON.stringify(data.extended))
+          : String(data.extended || '');
+
         newExplanations.push({
           word,
-          basic: data.basic,
-          extended: data.extended,
+          basic: basicText,
+          extended: extendedText,
         });
       }
       setExplanations(newExplanations);
@@ -112,58 +125,114 @@ export default function Home() {
 
   return (
     <main className={styles.main}>
-      <h1 className={styles.header}>MT Understanding Tool</h1>
+      <div className={styles.container}>
+        <header className={styles.header}>
+          <h1 className={styles.title}>MT Understanding Tool</h1>
+          <p className={styles.subtitle}>Translate, Understand, Refine.</p>
+        </header>
 
-      {step === 'input' && (
-        <div className={styles.inputContainer}>
-          <h2 className={styles.sourceTitle}>Enter Source Text (English)</h2>
-          <textarea
-            className={styles.inputArea}
-            value={inputText}
-            onChange={(e) => setInputText(e.target.value)}
-          />
-          <button className={styles.translateButton} onClick={handleStartTranslation}>
-            Translate
-          </button>
-        </div>
-      )}
-
-      {step !== 'input' && (
-        <div className={styles.sourceContainer}>
-          <h2 className={styles.sourceTitle}>Source Text (English)</h2>
-          <div className={styles.sourceText}>{inputText}</div>
-        </div>
-      )}
-
-      {step === 'translation' && (
-        <>
-          {isLoading ? (
-            <div className={styles.loading}>Translating...</div>
-          ) : (
-            <TranslationView
-              sentences={sentences}
-              selectedIndices={selectedIndices}
-              onWordClick={handleWordClick}
-              onNext={handleGetExplanations}
+        {step === 'input' && (
+          <div className={styles.card}>
+            <div className={styles.cardHeader}>
+              <h2 className={styles.cardTitle}>Enter Source Text</h2>
+              <span className={styles.badge}>English</span>
+            </div>
+            <textarea
+              className={styles.inputArea}
+              value={inputText}
+              onChange={(e) => setInputText(e.target.value)}
+              placeholder="Type or paste English text here..."
             />
-          )}
-        </>
-      )}
+            <div className={styles.cardFooter}>
+              <button
+                className={styles.primaryButton}
+                onClick={handleStartTranslation}
+                disabled={!inputText.trim() || isLoading}
+              >
+                {isLoading ? 'Translating...' : 'Start Translation'}
+              </button>
+            </div>
+          </div>
+        )}
 
-      {step === 'explanation' && (
-        <ExplanationView
-          explanations={explanations}
-          onNext={() => setStep('edit')}
-          isLoading={isLoading}
-        />
-      )}
+        {step !== 'input' && (
+          <div className={styles.collapsibleSource}>
+            <button
+              className={styles.collapseToggle}
+              onClick={() => setIsSourceVisible(!isSourceVisible)}
+            >
+              <div className={styles.toggleLabel}>
+                <span className={styles.badge}>Source Text</span>
+                <span className={styles.sourcePreview}>
+                  {isSourceVisible ? '' : inputText.slice(0, 50) + (inputText.length > 50 ? '...' : '')}
+                </span>
+              </div>
+              {isSourceVisible ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+            </button>
 
-      {step === 'edit' && (
-        <EditView
-          initialText={sentences.map(s => s.korean).join(' ')}
-          onFinish={handleEditFinish}
-        />
-      )}
+            {isSourceVisible && (
+              <div className={styles.sourceContent}>
+                {inputText}
+              </div>
+            )}
+          </div>
+        )}
+
+        {step === 'translation' && (
+          <div className={styles.translationContainer}>
+            {isLoading ? (
+              <div className={styles.loadingState}>
+                <div className={styles.spinner} />
+                <p>Analyzing text and generating translations...</p>
+              </div>
+            ) : (
+              <TranslationView
+                sentences={sentences}
+                selectedIndices={selectedIndices}
+                onWordClick={handleWordClick}
+                onNext={handleGetExplanations}
+              />
+            )}
+          </div>
+        )}
+
+        {step === 'edit' && (
+          <div className={styles.editLayout}>
+            <div className={styles.editMain}>
+              <EditView
+                initialText={sentences.map(s => s.korean).join(' ')}
+                onFinish={handleEditFinish}
+              />
+            </div>
+            <aside className={styles.editSidebar}>
+              <div className={styles.sidebarHeader}>
+                <h3 className={styles.sidebarTitle}>Word Explanations</h3>
+                <span className={styles.explanationCount}>{explanations.length} selected</span>
+              </div>
+
+              {isLoading ? (
+                <div className={styles.loadingState}>
+                  <div className={styles.spinner} />
+                  <p>Fetching explanations...</p>
+                </div>
+              ) : (
+                <div className={styles.sidebarContent}>
+                  {explanations.length === 0 ? (
+                    <div className={styles.emptyState}>
+                      <p>No words selected for explanation.</p>
+                      <p className={styles.emptyHint}>Go back to select words if you need help.</p>
+                    </div>
+                  ) : (
+                    explanations.map((data, idx) => (
+                      <ExplanationCard key={idx} data={data} />
+                    ))
+                  )}
+                </div>
+              )}
+            </aside>
+          </div>
+        )}
+      </div>
     </main>
   );
 }

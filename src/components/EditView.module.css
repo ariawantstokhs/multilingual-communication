@@ -1,45 +1,72 @@
 .container {
-    max-width: 800px;
-    margin: 0 auto;
-    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+    width: 100%;
 }
 
 .title {
-    font-size: 24px;
-    margin-bottom: 10px;
-    text-align: center;
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: #1a1a1a;
+    margin: 0;
 }
 
 .description {
     color: #666;
-    margin-bottom: 20px;
-    text-align: center;
+    margin: 0;
+    line-height: 1.5;
+}
+
+.editorWrapper {
+    border: 1px solid #e5e5e5;
+    border-radius: 12px;
+    overflow: hidden;
+    background: white;
+    transition: all 0.2s ease;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.editorWrapper:focus-within {
+    border-color: #0070f3;
+    box-shadow: 0 0 0 4px rgba(0, 112, 243, 0.1);
 }
 
 .textarea {
     width: 100%;
-    padding: 16px;
-    font-size: 16px;
-    border: 1px solid #ddd;
-    border-radius: 8px;
-    margin-bottom: 20px;
+    padding: 1.5rem;
+    font-size: 1.125rem;
+    line-height: 1.75;
+    color: #1a1a1a;
+    border: none;
+    resize: none;
+    background: transparent;
+    outline: none;
     font-family: inherit;
-    resize: vertical;
+}
+
+.actions {
+    display: flex;
+    justify-content: flex-end;
 }
 
 .finishButton {
-    display: block;
-    width: 100%;
-    padding: 12px;
-    background-color: #28a745;
+    padding: 12px 24px;
+    background-color: #1a1a1a;
     color: white;
     border: none;
-    border-radius: 6px;
-    font-size: 16px;
+    border-radius: 8px;
+    font-size: 1rem;
+    font-weight: 600;
     cursor: pointer;
-    transition: background-color 0.2s;
+    transition: all 0.2s;
 }
 
 .finishButton:hover {
-    background-color: #218838;
+    background-color: #333;
+    transform: translateY(-1px);
+}
+
+.finishButton:active {
+    transform: translateY(0);
 }

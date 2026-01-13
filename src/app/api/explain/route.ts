@@ -26,8 +26,8 @@ export async function POST(request: Request) {
           Selected Word/Phrase: "${selectedWord}"
           
           Provide an explanation in JSON format with two fields:
-          1. "basic": A short explanation of the meaning and which part of the English text it corresponds to.
-          2. "extended": A detailed explanation including usage context (formal/informal), similar expressions, and why this word was chosen.
+          1. "basic": A single string containing a short explanation of the meaning and which part of the English text it corresponds to. Do NOT return an object here.
+          2. "extended": A single string containing a detailed explanation including usage context (formal/informal), similar expressions, and why this word was chosen.
           
           Write the explanation primarily in English to help L2 Korean learners understand. You may quote Korean words, but the explanation text itself must be in English.`,
                 },
