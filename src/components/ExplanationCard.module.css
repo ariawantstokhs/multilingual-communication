@@ -1,0 +1,68 @@
+.card {
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    padding: 16px;
+    margin-bottom: 16px;
+    background-color: #fff;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.header {
+    margin-bottom: 8px;
+}
+
+.word {
+    font-size: 18px;
+    font-weight: bold;
+    color: #0070f3;
+    margin: 0;
+}
+
+.basic {
+    font-size: 16px;
+    color: #333;
+    margin-bottom: 12px;
+}
+
+.divider {
+    height: 1px;
+    background-color: #eee;
+    margin: 12px 0;
+}
+
+.extended {
+    animation: fadeIn 0.3s ease-in-out;
+}
+
+.extendedText {
+    font-size: 14px;
+    color: #555;
+    line-height: 1.5;
+    white-space: pre-wrap;
+}
+
+.expandButton {
+    background: none;
+    border: none;
+    color: #666;
+    font-size: 14px;
+    cursor: pointer;
+    padding: 0;
+    text-decoration: underline;
+}
+
+.expandButton:hover {
+    color: #333;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-5px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}

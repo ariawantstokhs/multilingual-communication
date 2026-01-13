@@ -1,0 +1,16 @@
+.word {
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+  margin-right: 4px;
+}
+
+.word:hover {
+  background-color: #f0f0f0;
+}
+
+.selected {
+  background-color: #ffe066; /* Highlight color */
+  font-weight: bold;
+}
