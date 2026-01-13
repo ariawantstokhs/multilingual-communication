@@ -32,17 +32,34 @@
     box-shadow: 0 0 0 4px rgba(0, 112, 243, 0.1);
 }
 
-.textarea {
+.contentEditable {
     width: 100%;
+    min-height: 200px;
     padding: 1.5rem;
     font-size: 1.125rem;
     line-height: 1.75;
     color: #1a1a1a;
-    border: none;
-    resize: none;
     background: transparent;
     outline: none;
     font-family: inherit;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    /* Act like an input */
+    cursor: text;
+}
+
+.contentEditable:empty:before {
+    content: attr(placeholder);
+    color: #999;
+}
+
+.highlight {
+    background-color: rgba(255, 226, 57, 0.4);
+    border-radius: 4px;
+    box-shadow: 0 0 0 1px rgba(255, 226, 57, 0.4);
+    display: inline-block;
+    /* Helps with box-shadows breaking across lines sometimes, but inline is usually safer for wrapping */
+    display: inline;
 }
 
 .actions {

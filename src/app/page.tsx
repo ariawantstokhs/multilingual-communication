@@ -202,6 +202,7 @@ export default function Home() {
               <EditView
                 initialText={sentences.map(s => s.korean).join(' ')}
                 onFinish={handleEditFinish}
+                highlightedWords={explanations.map(e => e.word)}
               />
             </div>
             <aside className={styles.editSidebar}>

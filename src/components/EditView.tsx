@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import TextareaAutosize from 'react-textarea-autosize';
 import styles from './EditView.module.css';
 
@@ -7,8 +7,49 @@ interface EditViewProps {
     onFinish: (finalText: string) => void;
 }
 
-export default function EditView({ initialText, onFinish }: EditViewProps) {
+export default function EditView({ initialText, onFinish, highlightedWords = [] }: EditViewProps & { highlightedWords?: string[] }) {
+    const editorRef = useRef<HTMLDivElement>(null);
+
+    // We only use this to track the plain text content for submission
     const [text, setText] = useState(initialText);
+
+    // Generate initial HTML with highlights
+    // We only do this ONCE to avoid cursor jumping issues with re-renders
+    const [initialHtml] = useState(() => {
+        if (!highlightedWords.length) return initialText;
+
+        const escapedWords = highlightedWords
+            .filter(w => w.trim().length > 0)
+            .map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+
+        if (escapedWords.length === 0) return initialText;
+
+        // Simply replace all occurrences
+        // Note: This is simple replacement. Be careful with HTML injection if text isn't trusted.
+        // Assuming initialText is plain text from our own translation step.
+        const pattern = new RegExp(`(${escapedWords.join('|')})`, 'gi');
+
+        // Split and reconstruct to avoid replacing inside existing tags (though there are none yet)
+        return initialText.split(pattern).map(part => {
+            if (highlightedWords.some(w => w.toLowerCase() === part.toLowerCase())) {
+                return `<span class="${styles.highlight}">${part}</span>`;
+            }
+            return part;
+        }).join('');
+    });
+
+    // Initialize content imperatively to avoid React managing it on subsequent renders
+    useEffect(() => {
+        if (editorRef.current) {
+            editorRef.current.innerHTML = initialHtml;
+        }
+    }, [initialHtml]);
+
+    const handleInput = (e: React.FormEvent<HTMLDivElement>) => {
+        if (e.currentTarget) {
+            setText(e.currentTarget.innerText);
+        }
+    };
 
     return (
         <div className={styles.container}>
@@ -17,11 +58,13 @@ export default function EditView({ initialText, onFinish }: EditViewProps) {
                 Refine the translation below. The box will expand as you type.
             </p>
             <div className={styles.editorWrapper}>
-                <TextareaAutosize
-                    className={styles.textarea}
-                    value={text}
-                    onChange={(e) => setText(e.target.value)}
-                    minRows={10}
+                <div
+                    ref={editorRef}
+                    className={styles.contentEditable}
+                    contentEditable
+                    suppressContentEditableWarning
+                    onInput={handleInput}
+                    spellCheck={false}
                 />
             </div>
             <div className={styles.actions}>
