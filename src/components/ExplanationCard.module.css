@@ -1,58 +1,141 @@
 .card {
-    border: 1px solid #ddd;
+    border: 1px solid #e0e0e0;
     border-radius: 8px;
-    padding: 16px;
-    margin-bottom: 16px;
+    padding: 12px 16px;
+    margin-bottom: 12px;
     background-color: #fff;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.card:hover {
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
 }
 
 .header {
     margin-bottom: 8px;
+    border-bottom: 1px solid #f0f0f0;
+    padding-bottom: 4px;
 }
 
 .word {
-    font-size: 18px;
-    font-weight: bold;
+    font-size: 16px;
+    font-weight: 700;
     color: #0070f3;
     margin: 0;
 }
 
-.basic {
-    font-size: 16px;
-    color: #333;
+.section {
     margin-bottom: 12px;
 }
 
-.divider {
-    height: 1px;
-    background-color: #eee;
-    margin: 12px 0;
+.sectionTitle {
+    font-size: 11px;
+    text-transform: uppercase;
+    color: #888;
+    margin: 0 0 4px 0;
+    font-weight: 600;
+}
+
+.basicText {
+    font-size: 14px;
+    color: #333;
+    line-height: 1.4;
+    margin: 0;
+}
+
+/* Back Translation Box */
+.backTranslationBox {
+    display: flex;
+    align-items: center;
+    background-color: #f5f7f9;
+    border-radius: 6px;
+    padding: 8px;
+    margin-bottom: 12px;
+    border: 1px solid #eee;
+}
+
+.btColumn {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.btDivider {
+    width: 1px;
+    height: 24px;
+    background-color: #ddd;
+    margin: 0 12px;
+}
+
+.btLabel {
+    font-size: 10px;
+    color: #888;
+    text-transform: uppercase;
+    margin-bottom: 2px;
+    font-weight: 600;
+}
+
+.btValue {
+    font-size: 13px;
+    font-weight: 500;
+    color: #333;
+}
+
+/* Native Usage Examples */
+.examplesList {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.exampleItem {
+    font-size: 13px;
+    color: #444;
+    line-height: 1.4;
+    background-color: #f0f7ff;
+    padding: 6px 10px;
+    border-radius: 4px;
+    border-left: 2px solid #0070f3;
 }
 
 .extended {
-    animation: fadeIn 0.3s ease-in-out;
+    animation: fadeIn 0.2s ease-in-out;
+    background-color: #fafafa;
+    padding: 8px 12px;
+    border-radius: 6px;
+    margin-top: 8px;
+    border: 1px solid #f0f0f0;
 }
 
 .extendedText {
-    font-size: 14px;
+    font-size: 13px;
     color: #555;
     line-height: 1.5;
     white-space: pre-wrap;
+    margin: 0;
 }
 
 .expandButton {
     background: none;
     border: none;
-    color: #666;
-    font-size: 14px;
+    color: #888;
+    font-size: 11px;
     cursor: pointer;
-    padding: 0;
-    text-decoration: underline;
+    padding: 6px 0 0 0;
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    transition: color 0.2s;
+    width: 100%;
+    justify-content: center;
+    border-top: 1px dashed #eee;
+    margin-top: 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
 }
 
 .expandButton:hover {
-    color: #333;
+    color: #0070f3;
 }
 
 @keyframes fadeIn {
@@ -65,4 +148,84 @@
         opacity: 1;
         transform: translateY(0);
     }
+}
+
+/* Tab Views */
+.tabContent {
+    min-height: 80px;
+}
+
+/* Tab 2: Comparison */
+.comparisonContainer {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.comparisonRow {
+    background-color: #f8f9fa;
+    border-radius: 6px;
+    padding: 8px;
+    border: 1px solid #eee;
+}
+
+.comparisonLabel {
+    font-size: 10px;
+    color: #888;
+    text-transform: uppercase;
+    font-weight: 600;
+    display: block;
+    margin-bottom: 2px;
+}
+
+.comparisonText {
+    font-size: 14px;
+    color: #333;
+    font-weight: 500;
+}
+
+/* Tab 3: Native Usage */
+.usageList {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.usageItem {
+    font-size: 13px;
+    color: #444;
+    line-height: 1.5;
+    background-color: #f0f7ff;
+    padding: 8px 10px;
+    border-radius: 6px;
+    border-left: 3px solid #0070f3;
+}
+
+.usageContext {
+    font-size: 11px;
+    color: #666;
+    font-style: italic;
+    margin-top: 4px;
+}
+
+.alternativesBox {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px dashed #eee;
+}
+
+.altLabel {
+    font-size: 11px;
+    color: #888;
+    margin-right: 6px;
+}
+
+.altTag {
+    display: inline-block;
+    background: #eee;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 12px;
+    color: #555;
+    margin-right: 4px;
 }

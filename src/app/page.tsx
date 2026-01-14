@@ -10,6 +10,7 @@ import { demoText } from '@/lib/demoData';
 import styles from './page.module.css';
 
 type Step = 'input' | 'translation' | 'edit';
+type TabType = 'explanation' | 'comparison' | 'examples';
 
 export default function Home() {
   const [step, setStep] = useState<Step>('input');
@@ -20,6 +21,7 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [finalText, setFinalText] = useState('');
   const [isSourceVisible, setIsSourceVisible] = useState(false);
+  const [activeTab, setActiveTab] = useState<TabType>('explanation');
 
   const handleStartTranslation = async () => {
     setStep('translation');
@@ -68,50 +70,88 @@ export default function Home() {
   };
 
   const handleGetExplanations = async () => {
-    setStep('edit'); // Skip standalone explanation view, go straight to edit with sidebar
+    setStep('edit');
     setIsLoading(true);
-    const newExplanations: ExplanationData[] = [];
 
     try {
-      // Fetch explanation for each selected word
-      // In a real app, we might batch this.
-      for (const key of selectedIndices) {
+      const selectedWordsList: string[] = [];
+
+      // 1. Convert Set to array of objects { sIdx, wIdx }
+      const sortedSelections = Array.from(selectedIndices).map(key => {
         const [sIdxStr, wIdxStr] = key.split('-');
-        const sIdx = parseInt(sIdxStr);
-        const wIdx = parseInt(wIdxStr);
-        const sentence = sentences[sIdx];
-        const word = sentence.korean.split(' ')[wIdx];
+        return { sIdx: parseInt(sIdxStr), wIdx: parseInt(wIdxStr) };
+      });
 
-        const response = await fetch('/api/explain', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            english: sentence.english,
-            korean: sentence.korean,
-            selectedWord: word,
-          }),
-        });
-        const data = await response.json();
+      // 2. Sort by sentence index, then word index
+      sortedSelections.sort((a, b) => {
+        if (a.sIdx !== b.sIdx) return a.sIdx - b.sIdx;
+        return a.wIdx - b.wIdx;
+      });
 
-        // Defensive coding: Ensure basic and extended are strings
-        // The API might return an object sometimes (e.g. { explanation: "...", part_of_speech: "..." })
-        const basicText = typeof data.basic === 'object' && data.basic !== null
-          ? (data.basic.explanation || JSON.stringify(data.basic))
-          : String(data.basic || '');
+      // 3. Group consecutive words
+      let currentPhrase: string[] = [];
+      let lastSIdx = -1;
+      let lastWIdx = -1;
 
-        const extendedText = typeof data.extended === 'object' && data.extended !== null
-          ? (data.extended.explanation || JSON.stringify(data.extended))
-          : String(data.extended || '');
+      for (const { sIdx, wIdx } of sortedSelections) {
+        if (sentences[sIdx]) {
+          const words = sentences[sIdx].korean.split(' ');
+          const word = words[wIdx];
 
-        newExplanations.push({
-          word,
-          basic: basicText,
-          extended: extendedText,
-        });
+          if (word) {
+            // Check if this word is consecutive to the last one
+            const isConsecutive = (sIdx === lastSIdx) && (wIdx === lastWIdx + 1);
+
+            if (isConsecutive) {
+              currentPhrase.push(word);
+            } else {
+              // Not consecutive: push previous phrase if exists, start new one
+              if (currentPhrase.length > 0) {
+                selectedWordsList.push(currentPhrase.join(' '));
+              }
+              currentPhrase = [word];
+            }
+
+            lastSIdx = sIdx;
+            lastWIdx = wIdx;
+          }
+        }
       }
-      setExplanations(newExplanations);
+
+      // Push the final phrase if any
+      if (currentPhrase.length > 0) {
+        selectedWordsList.push(currentPhrase.join(' '));
+      }
+
+      if (selectedWordsList.length === 0) {
+        setIsLoading(false);
+        return;
+      }
+
+      const fullEnglish = sentences.map(s => s.english).join(' ');
+      const fullKorean = sentences.map(s => s.korean).join(' ');
+
+      const response = await fetch('/api/explain', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          english: fullEnglish,
+          korean: fullKorean,
+          selectedWords: selectedWordsList,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error(`Server error: ${response.status}`);
+      }
+
+      const data = await response.json();
+      // Expecting data to be an array of ExplanationData
+      setExplanations(data);
+
     } catch (error) {
       console.error('Failed to fetch explanations', error);
+      alert('Failed to get explanations. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -207,8 +247,30 @@ export default function Home() {
             </div>
             <aside className={styles.editSidebar}>
               <div className={styles.sidebarHeader}>
-                <h3 className={styles.sidebarTitle}>Word Explanations</h3>
-                <span className={styles.explanationCount}>{explanations.length} selected</span>
+                <div className={styles.headerTop}>
+                  <h3 className={styles.sidebarTitle}>Word Explanations</h3>
+                  <span className={styles.explanationCount}>{explanations.length} selected</span>
+                </div>
+                <div className={styles.tabBar}>
+                  <button
+                    className={`${styles.tabButton} ${activeTab === 'explanation' ? styles.activeTab : ''}`}
+                    onClick={() => setActiveTab('explanation')}
+                  >
+                    설명 (Explain)
+                  </button>
+                  <button
+                    className={`${styles.tabButton} ${activeTab === 'comparison' ? styles.activeTab : ''}`}
+                    onClick={() => setActiveTab('comparison')}
+                  >
+                    비교 (Diff)
+                  </button>
+                  <button
+                    className={`${styles.tabButton} ${activeTab === 'examples' ? styles.activeTab : ''}`}
+                    onClick={() => setActiveTab('examples')}
+                  >
+                    예시 (Ex.)
+                  </button>
+                </div>
               </div>
 
               {isLoading ? (
@@ -225,7 +287,11 @@ export default function Home() {
                     </div>
                   ) : (
                     explanations.map((data, idx) => (
-                      <ExplanationCard key={idx} data={data} />
+                      <ExplanationCard
+                        key={idx}
+                        data={data}
+                        activeTab={activeTab}
+                      />
                     ))
                   )}
                 </div>

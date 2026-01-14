@@ -27,10 +27,24 @@ export default function EditView({ initialText, onFinish, highlightedWords = [] 
         // Simply replace all occurrences
         // Note: This is simple replacement. Be careful with HTML injection if text isn't trusted.
         // Assuming initialText is plain text from our own translation step.
+        if (escapedWords.length === 0) return initialText;
+
+        // Use word boundaries for exact matching, case insensitive
+        // Note: korean might not respond well to \b in all cases, but for mixed text it helps.
+        // For Korean, \b matches transitions between word char and non-word char.
+        // However, standard regex \b often fails for non-ASCII. 
+        // Let's use a simpler approach or a dedicated tokenizer if this were production.
+        // For this MVP, we will try to match whitespace boundaries or start/end of string.
+        // Pattern: (^|\s)(word)($|\s) - capture groups to preserve whitespace
+
+        // Actually, for simplicity and robustness with Korean, let's stick to simple replacement but try to be careful.
+        // Or better: use a function that splits by whitespace and checks exact match.
+        // But we want to preserve whitespace usage.
+
         const pattern = new RegExp(`(${escapedWords.join('|')})`, 'gi');
 
-        // Split and reconstruct to avoid replacing inside existing tags (though there are none yet)
         return initialText.split(pattern).map(part => {
+            // Check if the part roughly matches one of the words (trim check)
             if (highlightedWords.some(w => w.toLowerCase() === part.toLowerCase())) {
                 return `<span class="${styles.highlight}">${part}</span>`;
             }
