@@ -18,7 +18,7 @@ export default function ExplanationView({ explanations, onNext, isLoading }: Exp
             <h2 className={styles.title}>Step 2: Understand the nuances</h2>
             <div className={styles.grid}>
                 {explanations.map((data, idx) => (
-                    <ExplanationCard key={idx} data={data} />
+                    <ExplanationCard key={idx} data={data} activeTab="explanation" />
                 ))}
             </div>
             <button className={styles.nextButton} onClick={onNext}>
